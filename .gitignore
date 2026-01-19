@@ -1,0 +1,7 @@
+config.sh
+.env
+.DS_Store
+
+# Generated during install
+dokku/
+pihole-proxy/
