@@ -23,6 +23,7 @@ DOMAIN = os.environ.get('DOKKU_DOMAIN', 'example.com')
 TAILSCALE_IP = os.environ.get('TAILSCALE_IP', '')
 SSH_PORT = os.environ.get('DOKKU_SSH_PORT', '3022')
 GITHUB_REPO = os.environ.get('GITHUB_REPO', 'https://github.com/mrilikecoding/homelab')
+HOMELAB_USER = os.environ.get('HOMELAB_USER', '')  # Username for SSH to homelab server
 
 
 def get_tailscale_ip():
@@ -153,23 +154,31 @@ async def status():
 async def setup():
     """Human-readable setup instructions."""
     ip = get_tailscale_ip()
+    user_str = HOMELAB_USER if HOMELAB_USER else 'YOUR_USER'
+    user_note = '' if HOMELAB_USER else '\n\nReplace YOUR_USER with your username on the homelab server.'
+
     return f"""# Homelab Remote Machine Setup
 
 ## Prerequisites
 - Connected to the same Tailnet as the homelab server
-- SSH key at ~/.ssh/id_ed25519
+- SSH key at ~/.ssh/id_ed25519 (will be created if missing)
 
-## Step 1: Add SSH Config
+## Step 1: Trust Host Key & Add SSH Config
 
-Append to ~/.ssh/config:
+```bash
+# Trust the host key
+ssh-keyscan -p {SSH_PORT} {ip} >> ~/.ssh/known_hosts
 
-```
+# Add SSH config (if not already present)
+grep -q "Host dokku" ~/.ssh/config 2>/dev/null || cat >> ~/.ssh/config << 'EOF'
+
 Host dokku
   HostName {ip}
   Port {SSH_PORT}
   User dokku
   IdentityFile ~/.ssh/id_ed25519
   IdentitiesOnly yes
+EOF
 ```
 
 ## Step 2: Add Your SSH Key to Dokku
@@ -177,10 +186,8 @@ Host dokku
 Run this command (you'll need to authenticate to the server):
 
 ```bash
-cat ~/.ssh/id_ed25519.pub | ssh YOUR_USER@{ip} "docker exec -i dokku dokku ssh-keys:add $(whoami)"
-```
-
-Replace YOUR_USER with your username on the homelab server.
+cat ~/.ssh/id_ed25519.pub | ssh {user_str}@{ip} "docker exec -i dokku dokku ssh-keys:add $(whoami)"
+```{user_note}
 
 ## Step 3: Set Environment Variable
 
@@ -188,6 +195,7 @@ Add to your shell profile (~/.zshrc or ~/.bashrc):
 
 ```bash
 export DOKKU_DOMAIN="{DOMAIN}"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Then run: source ~/.zshrc
@@ -195,8 +203,9 @@ Then run: source ~/.zshrc
 ## Step 4: Install Deploy Script
 
 ```bash
-sudo curl -o /usr/local/bin/deploy {GITHUB_REPO}/raw/main/deploy
-sudo chmod +x /usr/local/bin/deploy
+mkdir -p ~/.local/bin
+curl -fsSL -o ~/.local/bin/deploy {GITHUB_REPO}/raw/main/deploy
+chmod +x ~/.local/bin/deploy
 ```
 
 ## Step 5: Deploy an App
@@ -214,28 +223,56 @@ Your app will be at: http://myapp.homelab.{DOMAIN}"""
 async def setup_agent():
     """Machine-readable setup for AI assistants."""
     ip = get_tailscale_ip()
+
+    # Build the SSH key registration command
+    if HOMELAB_USER:
+        ssh_key_cmd = f'cat ~/.ssh/id_ed25519.pub | ssh {HOMELAB_USER}@{ip} "docker exec -i dokku dokku ssh-keys:add $(whoami)"'
+        ssh_key_note = f'User will be prompted for {HOMELAB_USER}\'s password on the homelab server.'
+    else:
+        ssh_key_cmd = f'cat ~/.ssh/id_ed25519.pub | ssh USER@{ip} "docker exec -i dokku dokku ssh-keys:add $(whoami)"'
+        ssh_key_note = 'Replace USER with the username on the homelab server. User will be prompted for password.'
+
     return {
+        'schema_version': '1.1',
         'instructions': 'Follow these steps to configure this machine for homelab deployments',
         'config': {
             'domain': DOMAIN,
             'tailscale_ip': ip,
             'ssh_port': SSH_PORT,
-            'github_repo': GITHUB_REPO
+            'github_repo': GITHUB_REPO,
+            'homelab_user': HOMELAB_USER or None
+        },
+        'preflight': {
+            'name': 'Check connectivity to homelab',
+            'check': f'ping -c1 -W2 {ip} >/dev/null 2>&1',
+            'error': f'Cannot reach homelab server at {ip}. Are you connected to the Tailnet?'
         },
         'steps': [
             {
                 'step': 1,
-                'name': 'Check SSH key exists',
-                'description': 'Verify ~/.ssh/id_ed25519 exists, or generate one',
-                'command': 'test -f ~/.ssh/id_ed25519 || ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""',
-                'check': 'test -f ~/.ssh/id_ed25519'
+                'name': 'Trust host key',
+                'description': 'Add homelab server to known_hosts',
+                'run_as': 'agent',
+                'check': f'ssh-keygen -F "[{ip}]:{SSH_PORT}" 2>/dev/null | grep -q "found"',
+                'command': f'ssh-keyscan -p {SSH_PORT} {ip} >> ~/.ssh/known_hosts 2>/dev/null',
+                'skip_if_check_passes': True
             },
             {
                 'step': 2,
+                'name': 'Check SSH key exists',
+                'description': 'Verify ~/.ssh/id_ed25519 exists, or generate one',
+                'run_as': 'agent',
+                'check': 'test -f ~/.ssh/id_ed25519',
+                'command': 'ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""',
+                'skip_if_check_passes': True
+            },
+            {
+                'step': 3,
                 'name': 'Add SSH config',
                 'description': 'Add dokku host to SSH config if not present',
+                'run_as': 'agent',
                 'check': 'grep -q "Host dokku" ~/.ssh/config 2>/dev/null',
-                'command': f'''cat >> ~/.ssh/config << 'EOF'
+                'command': f'''mkdir -p ~/.ssh && touch ~/.ssh/config && grep -q "Host dokku" ~/.ssh/config 2>/dev/null || cat >> ~/.ssh/config << 'EOF'
 
 Host dokku
   HostName {ip}
@@ -247,35 +284,39 @@ EOF''',
                 'skip_if_check_passes': True
             },
             {
-                'step': 3,
+                'step': 4,
                 'name': 'Add SSH key to Dokku',
                 'description': 'Register the SSH public key with Dokku. User must authenticate to the server.',
+                'run_as': 'human',
                 'requires_user_action': True,
-                'command': f'cat ~/.ssh/id_ed25519.pub | ssh USER@{ip} "docker exec -i dokku dokku ssh-keys:add $(whoami)"',
-                'note': 'Replace USER with the username on the homelab server. User will be prompted for password.',
-                'verify': 'ssh dokku version'
-            },
-            {
-                'step': 4,
-                'name': 'Set DOKKU_DOMAIN environment variable',
-                'description': 'Add domain to shell profile',
-                'check': f'grep -q "DOKKU_DOMAIN=" ~/.zshrc 2>/dev/null || grep -q "DOKKU_DOMAIN=" ~/.bashrc 2>/dev/null',
-                'command_zsh': f'echo \'export DOKKU_DOMAIN="{DOMAIN}"\' >> ~/.zshrc && source ~/.zshrc',
-                'command_bash': f'echo \'export DOKKU_DOMAIN="{DOMAIN}"\' >> ~/.bashrc && source ~/.bashrc',
-                'skip_if_check_passes': True
+                'command': ssh_key_cmd,
+                'note': ssh_key_note,
+                'verify': 'ssh -o BatchMode=yes dokku version'
             },
             {
                 'step': 5,
+                'name': 'Set DOKKU_DOMAIN environment variable',
+                'description': 'Add domain to shell profile if not present',
+                'run_as': 'agent',
+                'check': 'grep -q "DOKKU_DOMAIN=" ~/.zshrc 2>/dev/null || grep -q "DOKKU_DOMAIN=" ~/.bashrc 2>/dev/null',
+                'command_zsh': f'grep -q "DOKKU_DOMAIN=" ~/.zshrc 2>/dev/null || echo \'export DOKKU_DOMAIN="{DOMAIN}"\' >> ~/.zshrc',
+                'command_bash': f'grep -q "DOKKU_DOMAIN=" ~/.bashrc 2>/dev/null || echo \'export DOKKU_DOMAIN="{DOMAIN}"\' >> ~/.bashrc',
+                'skip_if_check_passes': True
+            },
+            {
+                'step': 6,
                 'name': 'Install deploy script',
-                'description': 'Download and install the deploy helper script',
-                'check': 'test -x /usr/local/bin/deploy',
-                'command': f'sudo curl -o /usr/local/bin/deploy {GITHUB_REPO}/raw/main/deploy && sudo chmod +x /usr/local/bin/deploy',
+                'description': 'Download and install the deploy helper script to ~/.local/bin',
+                'run_as': 'agent',
+                'check': 'test -x ~/.local/bin/deploy || test -x /usr/local/bin/deploy',
+                'command': f'mkdir -p ~/.local/bin && curl -fsSL -o ~/.local/bin/deploy {GITHUB_REPO}/raw/main/deploy && chmod +x ~/.local/bin/deploy',
+                'post_note': 'Ensure ~/.local/bin is in your PATH. Add to shell profile: export PATH="$HOME/.local/bin:$PATH"',
                 'skip_if_check_passes': True
             }
         ],
         'verification': {
-            'command': 'ssh dokku version',
-            'expected': 'Should output dokku version number'
+            'command': 'ssh -o BatchMode=yes dokku version',
+            'expected': 'Should output dokku version number without prompting for password'
         },
         'usage': {
             'first_deploy': 'deploy appname --create',

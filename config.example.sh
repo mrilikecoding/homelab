@@ -33,3 +33,10 @@ APP_DOMAIN="nate.green"
 
 # Your server's Tailscale IP (found via: tailscale ip -4)
 TAILSCALE_IP=""  # Will be auto-detected if left empty
+
+# =============================================================================
+# Homelab API settings
+# =============================================================================
+# Username for SSH access to this homelab server (for remote machine setup)
+# This enables fully automated setup - agents won't need to ask for the username
+HOMELAB_USER=""  # e.g., "nate" - leave empty to require manual entry
