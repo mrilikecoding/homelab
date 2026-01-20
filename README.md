@@ -7,15 +7,15 @@ A lightweight, extensible platform for running a combined homelab and developmen
 - **Git push to deploy** - Push code, get a running app (like Heroku, but yours)
 - **Network-wide ad blocking** - Pi-hole for all devices on your network
 - **Private by default** - Everything accessible only via Tailscale VPN
-- **Custom domains** - Use your own domain for internal services
-- **Public when needed** - Expose specific apps to the internet via Tailscale Funnel or Cloudflare Tunnel
-- **Auto-start on boot** - Services recover automatically after restarts
+- **Custom domains** - Wildcard DNS for automatic subdomain routing
+- **Zero config deploys** - Deploy from any machine with one command
+- **Self-documenting API** - Query the server for setup instructions
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ Your Mac                                                        │
+│ Your Mac (Homelab Server)                                       │
 │                                                                 │
 │   ┌─────────────────────────────────────────────────────────┐   │
 │   │ Colima (Docker VM)                                      │   │
@@ -23,7 +23,7 @@ A lightweight, extensible platform for running a combined homelab and developmen
 │   │   ┌─────────────┐     ┌─────────────────────────────┐   │   │
 │   │   │   Pi-hole   │     │         Dokku               │   │   │
 │   │   │  DNS + Web  │     │   ┌─────┐ ┌─────┐ ┌─────┐   │   │   │
-│   │   │             │     │   │ app │ │ app │ │ app │   │   │   │
+│   │   │             │     │   │ app │ │ app │ │ api │   │   │   │
 │   │   └─────────────┘     │   └─────┘ └─────┘ └─────┘   │   │   │
 │   │                       │             ▲               │   │   │
 │   └───────────────────────┴─────────────│───────────────┘   │   │
@@ -44,16 +44,10 @@ A lightweight, extensible platform for running a combined homelab and developmen
           └───────────────────┘                   └─────────────────┘
 ```
 
-## Requirements
-
-- macOS (Intel or Apple Silicon)
-- [Homebrew](https://brew.sh)
-- [Tailscale](https://tailscale.com/download)
-
-## Quick Start
+## Quick Start (Server Setup)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/homelab.git
+git clone https://github.com/mrilikecoding/homelab.git
 cd homelab
 
 cp config.example.sh config.sh
@@ -62,79 +56,79 @@ cp config.example.sh config.sh
 ./install.sh
 ```
 
-## Configuration
+## Remote Machine Setup
 
-Copy `config.example.sh` to `config.sh` and customize:
+### Option 1: Automated (with Claude)
+
+If you have Claude on your dev machine, ask it:
+
+> "Set up my machine to deploy to my homelab. The setup API is at http://homelab-api.YOURDOMAIN"
+
+Claude will fetch the configuration and guide you through setup.
+
+### Option 2: Manual Setup
+
+On any machine connected to your Tailnet:
 
 ```bash
-# Pi-hole
-PIHOLE_PASSWORD="your-password"
-PIHOLE_TIMEZONE="America/Los_Angeles"
+# 1. Get your server's Tailscale IP
+HOMELAB_IP="your-tailscale-ip"
 
-# Dokku
-DOKKU_HOSTNAME="your-machine.tailnet-name.ts.net"
-DOKKU_SSH_PORT=3022
+# 2. Add SSH config
+cat >> ~/.ssh/config << EOF
 
-# Your domain (for internal DNS resolution)
-APP_DOMAIN="yourdomain.com"
+Host dokku
+  HostName $HOMELAB_IP
+  Port 3022
+  User dokku
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+EOF
+
+# 3. Add your SSH key to Dokku
+cat ~/.ssh/id_ed25519.pub | ssh user@$HOMELAB_IP "docker exec -i dokku dokku ssh-keys:add $(whoami)"
+
+# 4. Set your domain
+echo 'export DOKKU_DOMAIN=yourdomain.com' >> ~/.zshrc
+source ~/.zshrc
+
+# 5. Install deploy script
+sudo curl -o /usr/local/bin/deploy https://raw.githubusercontent.com/mrilikecoding/homelab/main/deploy
+sudo chmod +x /usr/local/bin/deploy
 ```
-
-## Post-Install Setup
-
-### Enable Tailscale DNS
-
-1. Open [Tailscale Admin → DNS](https://login.tailscale.com/admin/dns)
-2. Add your server's Tailscale IP as a custom nameserver
-3. Enable "Override local DNS"
-
-Now all devices on your Tailnet use Pi-hole for DNS and can resolve your custom domains.
 
 ---
 
 ## Deploying Apps
 
-Deploy any containerized application from your local machine with git push.
-
-### Create an App
+### First Deploy (New App)
 
 ```bash
-# On your server (or via SSH)
-docker exec dokku dokku apps:create myapp
-docker exec dokku dokku domains:set myapp myapp.yourdomain.com
+cd my-app
+deploy myapp --create
 ```
 
-### Add DNS Entry
+This:
+1. Creates the app in Dokku
+2. Sets domain to `myapp.YOURDOMAIN`
+3. Pushes and builds your code
 
-Edit `~/pihole/etc-pihole/pihole.toml` on your server and add to the `hosts` array:
-
-```toml
-hosts = [
-  "100.x.x.x myapp.yourdomain.com"
-]
-```
-
-Restart Pi-hole: `docker restart pihole`
-
-### Deploy from Your Dev Machine
-
-Your app needs a `Dockerfile` (or be buildpack-compatible).
+### Subsequent Deploys
 
 ```bash
-cd your-app
-
-# Add the remote (once)
-git remote add dokku ssh://dokku@YOUR_SERVER_TAILSCALE_IP:3022/myapp
-
-# Deploy
-git push dokku main
+deploy myapp
 ```
 
-That's it. Your app is live at `http://myapp.yourdomain.com` from any device on your Tailnet.
+### What You Need
+
+Your app needs one of:
+- `Dockerfile` - Dokku builds and runs it
+- Buildpack-compatible code (Node.js package.json, Python requirements.txt, etc.)
 
 ### Example: Deploy a Node.js App
 
 ```bash
-mkdir hello-world && cd hello-world
+mkdir hello && cd hello
 git init
 
 cat > server.js << 'EOF'
@@ -142,7 +136,7 @@ const http = require('http');
 const port = process.env.PORT || 5000;
 http.createServer((req, res) => {
   res.end('Hello from Dokku!\n');
-}).listen(port, () => console.log(`Listening on ${port}`));
+}).listen(port);
 EOF
 
 cat > Dockerfile << 'EOF'
@@ -155,145 +149,130 @@ CMD ["node", "server.js"]
 EOF
 
 git add . && git commit -m "Initial commit"
-git remote add dokku ssh://dokku@YOUR_SERVER:3022/hello
-git push dokku main
+deploy hello --create
 ```
 
-### Managing Apps
+Visit `http://hello.YOURDOMAIN`
 
-```bash
-# List apps
-docker exec dokku dokku apps:list
+---
 
-# View logs
-docker exec dokku dokku logs myapp -t
+## Setup API
 
-# Restart
-docker exec dokku dokku ps:restart myapp
+The homelab includes a self-documenting API at `http://homelab-api.YOURDOMAIN` that provides:
 
-# Stop
-docker exec dokku dokku ps:stop myapp
+| Endpoint | Description |
+|----------|-------------|
+| `GET /` | Overview and available endpoints |
+| `GET /setup` | Complete setup instructions for remote machines |
+| `GET /ssh-config` | SSH config snippet ready to append |
+| `GET /deploy-script` | The deploy script content |
+| `GET /status` | Current Dokku apps and their status |
+| `GET /config` | Server configuration (domain, IPs, ports) |
 
-# Delete
-docker exec dokku dokku apps:destroy myapp --force
+### Using with Claude
+
+On a new dev machine, tell Claude:
+
+```
+Fetch http://homelab-api.YOURDOMAIN/setup and configure this machine to deploy apps to my homelab.
 ```
 
-### Environment Variables
+Claude will:
+1. Fetch the setup instructions
+2. Create the SSH config
+3. Guide you through adding your SSH key
+4. Install the deploy script
+5. Set the required environment variables
+
+---
+
+## Managing Apps
 
 ```bash
-# Set variables
-docker exec dokku dokku config:set myapp DATABASE_URL=postgres://...
-
-# View variables
-docker exec dokku dokku config:show myapp
-```
-
-### Persistent Storage
-
-```bash
-# Create and mount storage
-docker exec dokku dokku storage:ensure-directory myapp-data
-docker exec dokku dokku storage:mount myapp /var/lib/dokku/data/storage/myapp-data:/app/data
-docker exec dokku dokku ps:restart myapp
+# Via SSH (from any machine)
+ssh dokku apps:list
+ssh dokku logs myapp -t
+ssh dokku ps:restart myapp
+ssh dokku config:set myapp KEY=value
+ssh dokku apps:destroy myapp --force
 ```
 
 ---
 
 ## Exposing Apps Publicly
 
-By default, apps are only accessible via Tailscale. To make an app publicly accessible:
+By default, apps are only accessible via Tailscale.
 
-### Option 1: Tailscale Funnel (Easiest)
-
-Tailscale Funnel exposes your service through Tailscale's infrastructure with automatic HTTPS.
+### Tailscale Funnel (Easiest)
 
 ```bash
 # On your server
 tailscale funnel --bg 443
 ```
 
-Then add a CNAME record for your public domain pointing to your Tailscale hostname:
+Add a CNAME: `public.yourdomain.com → your-machine.tailnet-name.ts.net`
+
+### Cloudflare Tunnel
+
+```bash
+brew install cloudflared
+cloudflared tunnel login
+cloudflared tunnel create homelab
+# Configure ~/.cloudflared/config.yml
+cloudflared tunnel run homelab
 ```
-public.yourdomain.com → your-machine.tailnet-name.ts.net
-```
-
-### Option 2: Cloudflare Tunnel (More Control)
-
-For custom domains without exposing your IP:
-
-1. Install cloudflared: `brew install cloudflared`
-2. Authenticate: `cloudflared tunnel login`
-3. Create tunnel: `cloudflared tunnel create homelab`
-4. Configure routing in `~/.cloudflared/config.yml`:
-   ```yaml
-   tunnel: YOUR_TUNNEL_ID
-   credentials-file: /path/to/credentials.json
-
-   ingress:
-     - hostname: app.yourdomain.com
-       service: http://localhost:80
-     - service: http_status:404
-   ```
-5. Add CNAME in Cloudflare DNS: `app.yourdomain.com → YOUR_TUNNEL_ID.cfargotunnel.com`
-6. Run: `cloudflared tunnel run homelab`
-
-### Option 3: Traditional Port Forwarding
-
-Forward ports 80/443 on your router to your server. Consider:
-- Setting a static IP or DHCP reservation
-- Using a dynamic DNS service if you don't have a static public IP
-- Adding SSL via Let's Encrypt: `docker exec dokku dokku letsencrypt:enable myapp`
 
 ---
 
-## Extending Your Setup
+## Configuration
 
-### Adding New Services
-
-The pattern for adding services:
-
-1. Create a directory with a `Dockerfile` or `docker-compose.yml`
-2. Deploy to Dokku or run standalone
-3. Add DNS entry in Pi-hole
-4. Access via your custom domain
-
-### Database Services
+### config.example.sh
 
 ```bash
-# PostgreSQL plugin
-docker exec dokku dokku plugin:install https://github.com/dokku/dokku-postgres.git
+# Pi-hole
+PIHOLE_PASSWORD="your-password"
+PIHOLE_TIMEZONE="America/Los_Angeles"
 
-# Create database
-docker exec dokku dokku postgres:create mydb
+# Dokku
+DOKKU_HOSTNAME="your-machine.tailnet-name.ts.net"
+DOKKU_SSH_PORT=3022
 
-# Link to app
-docker exec dokku dokku postgres:link mydb myapp
+# Your domain for apps
+APP_DOMAIN="yourdomain.com"
 ```
 
-Similar plugins exist for Redis, MySQL, MongoDB, and more. See [Dokku Plugins](https://dokku.com/docs/community/plugins/).
+### Environment Variables (Dev Machine)
 
-### Monitoring (Example)
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `DOKKU_DOMAIN` | Your app domain (required) | `nate.green` |
+| `DOKKU_HOST` | SSH host alias (optional) | `dokku` |
 
-Deploy Uptime Kuma for monitoring your services:
+---
 
-```bash
-docker exec dokku dokku apps:create uptime
-docker exec dokku dokku domains:set uptime status.yourdomain.com
-docker exec dokku dokku storage:ensure-directory uptime-data
-docker exec dokku dokku storage:mount uptime /var/lib/dokku/data/storage/uptime-data:/app/data
+## File Locations
 
-# Clone and push
-git clone https://github.com/louislam/uptime-kuma.git
-cd uptime-kuma
-git remote add dokku ssh://dokku@YOUR_SERVER:3022/uptime
-git push dokku master
-```
+### Server
+
+| Path | Purpose |
+|------|---------|
+| `~/homelab/` | This repo |
+| `~/pihole/` | Pi-hole config and data |
+| `/Library/LaunchDaemons/com.homelab.*` | Startup services |
+
+### Dev Machine
+
+| Path | Purpose |
+|------|---------|
+| `~/.ssh/config` | SSH config with dokku host |
+| `/usr/local/bin/deploy` | Deploy script |
+| `DOKKU_DOMAIN` env var | Your domain |
 
 ---
 
 ## Maintenance
 
-### Updating Dokku
+### Update Dokku
 
 ```bash
 cd ~/homelab/dokku
@@ -301,78 +280,54 @@ docker compose pull
 docker compose up -d
 ```
 
-### Updating Pi-hole
-
-```bash
-docker pull pihole/pihole:latest
-docker restart pihole
-```
-
-### Backup
-
-Key data locations:
-- `~/pihole/` - Pi-hole configuration and databases
-- Dokku volume - App data (use `docker volume inspect dokku_data` to find path)
-
-### Logs
+### View Logs
 
 ```bash
 # Startup log
 cat /tmp/homelab-startup.log
 
-# Pi-hole
-docker logs pihole
-
-# Dokku
-docker logs dokku
-
-# Specific app
-docker exec dokku dokku logs myapp
+# App logs
+ssh dokku logs myapp
 ```
+
+### Backup
+
+Key data:
+- `~/pihole/` - Pi-hole config
+- Dokku volume - `docker volume inspect dokku_data`
 
 ---
 
 ## Troubleshooting
 
-### DNS not resolving custom domains
-
-1. Verify Pi-hole is running: `docker ps | grep pihole`
-2. Check your device is using Tailscale DNS: `dig myapp.yourdomain.com`
-3. Verify the hosts entry in `~/pihole/etc-pihole/pihole.toml`
-4. Restart Pi-hole: `docker restart pihole`
-
-### Can't push to Dokku
-
-1. Verify your SSH key is registered:
-   ```bash
-   docker exec dokku dokku ssh-keys:list
-   ```
-2. Check your git remote uses the correct port:
-   ```bash
-   git remote -v
-   # Should show: ssh://dokku@host:3022/appname
-   ```
-3. Test SSH connection:
-   ```bash
-   ssh -p 3022 dokku@YOUR_SERVER
-   ```
-
-### Services not starting after reboot
+### Can't connect to dokku host
 
 ```bash
-# Check startup log
-cat /tmp/homelab-startup.log
+# Test SSH
+ssh -v dokku version
 
-# Manually start
-colima start --network-address
-docker restart pihole dokku
+# Check Tailscale
+tailscale status
 ```
 
-### Port conflicts
+### DNS not resolving
 
 ```bash
-lsof -i :80
-lsof -i :443
+# Check Pi-hole
+dig myapp.yourdomain.com @YOUR_TAILSCALE_IP
+
+# Restart Pi-hole
+docker restart pihole
+```
+
+### Deploy fails
+
+```bash
+# Check app exists
+ssh dokku apps:list
+
+# Check logs
+ssh dokku logs myapp
 ```
 
 ---
@@ -382,17 +337,6 @@ lsof -i :443
 ```bash
 ./uninstall.sh
 ```
-
-This removes containers and startup services but preserves your data. See script output for optional cleanup commands.
-
-## File Locations
-
-| Path | Purpose |
-|------|---------|
-| `~/pihole/` | Pi-hole configuration and data |
-| `~/homelab/dokku/` | Dokku compose file (generated) |
-| `/Library/LaunchDaemons/com.homelab.*` | Startup services |
-| `/usr/local/bin/homelab-startup.sh` | Boot script |
 
 ## License
 
