@@ -1,0 +1,84 @@
+#!/bin/bash
+set -e
+
+# Deploy an app to Dokku
+# Usage: deploy <app-name> [--create]
+#
+# Prerequisites on your dev machine:
+# 1. SSH key added to Dokku (ssh-keys:add)
+# 2. SSH config entry for 'dokku' host pointing to your server
+# 3. DOKKU_DOMAIN environment variable set (e.g., export DOKKU_DOMAIN=nate.green)
+
+APP_NAME="$1"
+CREATE_FLAG="$2"
+
+# Configuration via environment variables
+DOKKU_HOST="${DOKKU_HOST:-dokku}"
+DOKKU_DOMAIN="${DOKKU_DOMAIN:-}"
+
+if [ -z "$APP_NAME" ]; then
+    echo "Usage: deploy <app-name> [--create]"
+    echo ""
+    echo "Options:"
+    echo "  --create    Create the app in Dokku first (run once per new app)"
+    echo ""
+    echo "Examples:"
+    echo "  deploy myapp --create   # First deploy of a new app"
+    echo "  deploy myapp            # Subsequent deploys"
+    echo ""
+    echo "Environment variables (required):"
+    echo "  DOKKU_DOMAIN   Your domain (e.g., nate.green)"
+    echo ""
+    echo "Environment variables (optional):"
+    echo "  DOKKU_HOST     SSH host alias (default: dokku)"
+    exit 1
+fi
+
+if [ -z "$DOKKU_DOMAIN" ]; then
+    echo "Error: DOKKU_DOMAIN environment variable not set"
+    echo "Set it with: export DOKKU_DOMAIN=yourdomain.com"
+    exit 1
+fi
+
+# Check if we're in a git repo
+if ! git rev-parse --git-dir > /dev/null 2>&1; then
+    echo "Error: Not in a git repository"
+    exit 1
+fi
+
+# Check for uncommitted changes
+if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+    echo "Warning: You have uncommitted changes"
+    read -p "Continue anyway? [y/N] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+fi
+
+# Create app if requested
+if [ "$CREATE_FLAG" = "--create" ]; then
+    echo "Creating app '$APP_NAME' in Dokku..."
+    ssh "$DOKKU_HOST" apps:create "$APP_NAME" || true
+    ssh "$DOKKU_HOST" domains:set "$APP_NAME" "$APP_NAME.$DOKKU_DOMAIN"
+    echo "App created with domain: $APP_NAME.$DOKKU_DOMAIN"
+fi
+
+# Add/update git remote
+REMOTE_URL="$DOKKU_HOST:$APP_NAME"
+if git remote get-url dokku > /dev/null 2>&1; then
+    git remote set-url dokku "$REMOTE_URL"
+else
+    git remote add dokku "$REMOTE_URL"
+fi
+
+# Get current branch
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# Deploy
+echo "Deploying $APP_NAME from branch $BRANCH..."
+git push dokku "$BRANCH:main"
+
+echo ""
+echo "Deployed! Your app is available at:"
+echo "  http://$APP_NAME.$DOKKU_DOMAIN"
