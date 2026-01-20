@@ -51,7 +51,7 @@ async def index():
             '/setup': 'Complete setup instructions (start here)',
             '/setup/agent': 'Machine-readable setup for AI assistants',
             '/ssh-config': 'SSH config snippet to append to ~/.ssh/config',
-            '/deploy-script': 'The deploy script content',
+            '/cli': 'The homelab CLI script content',
             '/status': 'Current Dokku apps and their status',
             '/config': 'Server configuration details'
         },
@@ -69,7 +69,7 @@ async def config():
         'ssh_port': SSH_PORT,
         'ssh_user': 'dokku',
         'github_repo': GITHUB_REPO,
-        'deploy_script_url': f'{GITHUB_REPO}/raw/main/deploy'
+        'cli_url': f'{GITHUB_REPO}/raw/main/homelab'
     }
 
 
@@ -85,59 +85,11 @@ async def ssh_config():
   IdentitiesOnly yes"""
 
 
-@app.get("/deploy-script", response_class=PlainTextResponse)
-async def deploy_script():
-    """The deploy script content."""
-    return '''#!/bin/bash
-set -e
-
-APP_NAME="$1"
-CREATE_FLAG="$2"
-
-DOKKU_HOST="${DOKKU_HOST:-dokku}"
-DOKKU_DOMAIN="${DOKKU_DOMAIN:-}"
-
-if [ -z "$APP_NAME" ]; then
-    echo "Usage: deploy <app-name> [--create]"
-    echo ""
-    echo "Options:"
-    echo "  --create    Create the app in Dokku first"
-    echo ""
-    echo "Environment variables (required):"
-    echo "  DOKKU_DOMAIN   Your domain (e.g., example.com)"
-    exit 1
-fi
-
-if [ -z "$DOKKU_DOMAIN" ]; then
-    echo "Error: DOKKU_DOMAIN not set"
-    echo "Run: export DOKKU_DOMAIN=yourdomain.com"
-    exit 1
-fi
-
-if ! git rev-parse --git-dir > /dev/null 2>&1; then
-    echo "Error: Not in a git repository"
-    exit 1
-fi
-
-if [ "$CREATE_FLAG" = "--create" ]; then
-    echo "Creating app '$APP_NAME'..."
-    ssh "$DOKKU_HOST" apps:create "$APP_NAME" || true
-    ssh "$DOKKU_HOST" domains:set "$APP_NAME" "$APP_NAME.homelab.$DOKKU_DOMAIN"
-fi
-
-REMOTE_URL="$DOKKU_HOST:$APP_NAME"
-if git remote get-url dokku > /dev/null 2>&1; then
-    git remote set-url dokku "$REMOTE_URL"
-else
-    git remote add dokku "$REMOTE_URL"
-fi
-
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-echo "Deploying $APP_NAME..."
-git push dokku "$BRANCH:main"
-
-echo ""
-echo "Deployed: http://$APP_NAME.homelab.$DOKKU_DOMAIN"'''
+@app.get("/cli")
+async def cli_script():
+    """Redirect to the homelab CLI script on GitHub."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=f'{GITHUB_REPO}/raw/main/homelab', status_code=302)
 
 
 @app.get("/status")
@@ -200,20 +152,27 @@ export PATH="$HOME/.local/bin:$PATH"
 
 Then run: source ~/.zshrc
 
-## Step 4: Install Deploy Script
+## Step 4: Install Homelab CLI
 
 ```bash
 mkdir -p ~/.local/bin
-curl -fsSL -o ~/.local/bin/deploy {GITHUB_REPO}/raw/main/deploy
-chmod +x ~/.local/bin/deploy
+curl -fsSL -o ~/.local/bin/homelab {GITHUB_REPO}/raw/main/homelab
+chmod +x ~/.local/bin/homelab
 ```
 
 ## Step 5: Deploy an App
 
 ```bash
 cd your-app
-deploy myapp --create   # First time
-deploy myapp            # Updates
+homelab deploy --create   # First time
+homelab deploy            # Updates
+```
+
+Or use the full CLI:
+```bash
+homelab apps              # List apps
+homelab logs myapp        # View logs
+homelab config myapp      # Show config
 ```
 
 Your app will be at: http://myapp.homelab.{DOMAIN}"""
@@ -307,10 +266,10 @@ EOF
             },
             {
                 'step': 6,
-                'name': 'Install deploy script',
-                'description': 'Download deploy script to ~/.local/bin (idempotent, always fetches latest)',
+                'name': 'Install homelab CLI',
+                'description': 'Download homelab CLI to ~/.local/bin (idempotent, always fetches latest)',
                 'run_as': 'agent',
-                'command': f'mkdir -p ~/.local/bin && curl -fsSL -o ~/.local/bin/deploy {GITHUB_REPO}/raw/main/deploy && chmod +x ~/.local/bin/deploy',
+                'command': f'mkdir -p ~/.local/bin && curl -fsSL -o ~/.local/bin/homelab {GITHUB_REPO}/raw/main/homelab && chmod +x ~/.local/bin/homelab',
             }
         ],
         'verification': {
@@ -318,8 +277,8 @@ EOF
             'expected': 'Should output dokku version number without prompting for password'
         },
         'usage': {
-            'first_deploy': 'deploy appname --create',
-            'subsequent': 'deploy appname',
+            'first_deploy': 'homelab deploy appname --create',
+            'subsequent': 'homelab deploy appname',
             'app_url_pattern': f'http://APPNAME.homelab.{DOMAIN}'
         }
     }
