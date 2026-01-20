@@ -4,8 +4,11 @@
 OUTPUT_DIR="${1:-/Users/nathanielgreen/homelab/status/html}"
 mkdir -p "$OUTPUT_DIR"
 
+# Use full path to docker for launchd compatibility
+DOCKER="/usr/local/bin/docker"
+
 # Get app list and status
-APPS=$(docker exec dokku dokku apps:list 2>/dev/null | tail -n +2)
+APPS=$($DOCKER exec dokku dokku apps:list 2>/dev/null | tail -n +2)
 
 cat > "$OUTPUT_DIR/index.html" << 'HEADER'
 <!DOCTYPE html>
@@ -52,7 +55,7 @@ if [ -z "$APPS" ]; then
   echo '  <div class="no-apps">No apps deployed</div>' >> "$OUTPUT_DIR/index.html"
 else
   for app in $APPS; do
-    STATUS=$(docker exec dokku dokku ps:report "$app" 2>/dev/null | grep "running" | head -1)
+    STATUS=$($DOCKER exec dokku dokku ps:report "$app" 2>/dev/null | grep "running" | head -1)
     RUNNING_COUNT=$(echo "$STATUS" | grep -oE '[0-9]+' | head -1)
 
     if [ -n "$RUNNING_COUNT" ] && [ "$RUNNING_COUNT" -gt 0 ]; then
@@ -60,7 +63,7 @@ else
       STATUS_TEXT="Running ($RUNNING_COUNT)"
     else
       # Check if it's stopped or just has no processes
-      DEPLOYED=$(docker exec dokku dokku ps:report "$app" 2>/dev/null | grep "Deployed" | grep -v "false")
+      DEPLOYED=$($DOCKER exec dokku dokku ps:report "$app" 2>/dev/null | grep "Deployed" | grep -v "false")
       if [ -n "$DEPLOYED" ]; then
         STATUS_CLASS="stopped"
         STATUS_TEXT="Stopped"

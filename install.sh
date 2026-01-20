@@ -179,7 +179,7 @@ NGINXCONF
 
 # Create and deploy the app
 docker exec dokku dokku apps:create pihole 2>/dev/null || true
-docker exec dokku dokku domains:set pihole pihole.${APP_DOMAIN}
+docker exec dokku dokku domains:set pihole pihole.homelab.${APP_DOMAIN}
 
 cd "$SCRIPT_DIR/pihole-proxy"
 rm -rf .git
@@ -196,8 +196,32 @@ rm -rf .git
 # =============================================================================
 echo "==> Configuring local DNS records..."
 if [[ -f ~/pihole/etc-pihole/pihole.toml ]]; then
-    # Add DNS record for pihole.${APP_DOMAIN}
-    sed -i.bak "s/hosts = \[\]/hosts = [\"${TAILSCALE_IP} pihole.${APP_DOMAIN}\"]/" ~/pihole/etc-pihole/pihole.toml
+    # Configure wildcard DNS for all *.homelab.${APP_DOMAIN} subdomains
+    # This keeps the apex domain and www free for public sites
+    python3 << PYCONFIG
+import re
+
+with open("$HOME/pihole/etc-pihole/pihole.toml", "r") as f:
+    content = f.read()
+
+# Add wildcard DNS via dnsmasq_lines for homelab subdomain only
+wildcard_line = "address=/.homelab.${APP_DOMAIN}/${TAILSCALE_IP}"
+if "dnsmasq_lines" not in content or 'dnsmasq_lines = []' in content:
+    # Add or replace empty dnsmasq_lines
+    if 'dnsmasq_lines = []' in content:
+        content = content.replace('dnsmasq_lines = []', f'dnsmasq_lines = ["{wildcard_line}"]')
+    else:
+        # Insert after [dns] section
+        content = re.sub(r'(\[dns\])', f'\\1\n  dnsmasq_lines = ["{wildcard_line}"]', content)
+elif wildcard_line not in content:
+    # Add to existing dnsmasq_lines array
+    content = re.sub(r'dnsmasq_lines = \[(.*?)\]', f'dnsmasq_lines = [\\1, "{wildcard_line}"]', content, flags=re.DOTALL)
+
+with open("$HOME/pihole/etc-pihole/pihole.toml", "w") as f:
+    f.write(content)
+
+print("Wildcard DNS configured for *.homelab.${APP_DOMAIN} -> ${TAILSCALE_IP}")
+PYCONFIG
     docker restart pihole
     sleep 5
 fi
@@ -337,7 +361,7 @@ echo "  Installation complete!"
 echo "=============================================="
 echo ""
 echo "Pi-hole:"
-echo "  Dashboard: http://pihole.${APP_DOMAIN}/admin"
+echo "  Dashboard: http://pihole.homelab.${APP_DOMAIN}/admin"
 echo "  Password:  $PIHOLE_PASSWORD"
 echo "  DNS IP:    $TAILSCALE_IP"
 echo ""
@@ -348,14 +372,11 @@ echo "             git push dokku main"
 echo ""
 echo "Next steps:"
 echo "  1. Go to https://login.tailscale.com/admin/dns"
-echo "  2. Add nameserver: $TAILSCALE_IP"
-echo "  3. Enable 'Override DNS servers'"
+echo "  2. Add Split DNS: homelab.${APP_DOMAIN} -> $TAILSCALE_IP"
+echo "  3. Optionally add $TAILSCALE_IP as global nameserver for ad-blocking"
 echo ""
 echo "To deploy a new app:"
-echo "  1. Add DNS: Edit ~/pihole/etc-pihole/pihole.toml"
-echo "     Add to hosts array: \"$TAILSCALE_IP myapp.${APP_DOMAIN}\""
-echo "  2. Restart Pi-hole: docker restart pihole"
-echo "  3. Create app: docker exec dokku dokku apps:create myapp"
-echo "  4. Set domain: docker exec dokku dokku domains:set myapp myapp.${APP_DOMAIN}"
-echo "  5. Push code: git push dokku main"
+echo "  Wildcard DNS is configured - all *.homelab.${APP_DOMAIN} resolves automatically!"
+echo "  Just run: deploy myapp --create"
+echo "  Your app will be at: http://myapp.homelab.${APP_DOMAIN}"
 echo ""

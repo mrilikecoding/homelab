@@ -60,8 +60,8 @@ fi
 if [ "$CREATE_FLAG" = "--create" ]; then
     echo "Creating app '$APP_NAME' in Dokku..."
     ssh "$DOKKU_HOST" apps:create "$APP_NAME" || true
-    ssh "$DOKKU_HOST" domains:set "$APP_NAME" "$APP_NAME.$DOKKU_DOMAIN"
-    echo "App created with domain: $APP_NAME.$DOKKU_DOMAIN"
+    ssh "$DOKKU_HOST" domains:set "$APP_NAME" "$APP_NAME.homelab.$DOKKU_DOMAIN"
+    echo "App created with domain: $APP_NAME.homelab.$DOKKU_DOMAIN"
 fi
 
 # Add/update git remote
@@ -81,4 +81,4 @@ git push dokku "$BRANCH:main"
 
 echo ""
 echo "Deployed! Your app is available at:"
-echo "  http://$APP_NAME.$DOKKU_DOMAIN"
+echo "  http://$APP_NAME.homelab.$DOKKU_DOMAIN"

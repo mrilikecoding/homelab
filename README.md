@@ -56,13 +56,21 @@ cp config.example.sh config.sh
 ./install.sh
 ```
 
+After installation, configure Tailscale DNS:
+
+1. Go to https://login.tailscale.com/admin/dns
+2. Add **Split DNS**: `homelab.YOURDOMAIN` → `YOUR_TAILSCALE_IP`
+3. (Optional) Add your Tailscale IP as a **Global Nameserver** for network-wide ad blocking
+
+Your apps will be available at `*.homelab.YOURDOMAIN` (e.g., `myapp.homelab.nate.green`).
+
 ## Remote Machine Setup
 
 ### Option 1: Automated (with Claude)
 
 If you have Claude on your dev machine, ask it:
 
-> "Set up my machine to deploy to my homelab. The setup API is at http://homelab-api.YOURDOMAIN"
+> "Set up my machine to deploy to my homelab. The setup API is at http://api.homelab.YOURDOMAIN"
 
 Claude will fetch the configuration and guide you through setup.
 
@@ -110,7 +118,7 @@ deploy myapp --create
 
 This:
 1. Creates the app in Dokku
-2. Sets domain to `myapp.YOURDOMAIN`
+2. Sets domain to `myapp.homelab.YOURDOMAIN`
 3. Pushes and builds your code
 
 ### Subsequent Deploys
@@ -152,13 +160,13 @@ git add . && git commit -m "Initial commit"
 deploy hello --create
 ```
 
-Visit `http://hello.YOURDOMAIN`
+Visit `http://hello.homelab.YOURDOMAIN`
 
 ---
 
 ## Setup API
 
-The homelab includes a self-documenting API at `http://homelab-api.YOURDOMAIN` that provides:
+The homelab includes a self-documenting API at `http://api.homelab.YOURDOMAIN` that provides:
 
 | Endpoint | Description |
 |----------|-------------|
@@ -174,7 +182,7 @@ The homelab includes a self-documenting API at `http://homelab-api.YOURDOMAIN` t
 On a new dev machine, tell Claude:
 
 ```
-Fetch http://homelab-api.YOURDOMAIN/setup and configure this machine to deploy apps to my homelab.
+Fetch http://api.homelab.YOURDOMAIN/setup and configure this machine to deploy apps to my homelab.
 ```
 
 Claude will:
@@ -314,11 +322,15 @@ tailscale status
 
 ```bash
 # Check Pi-hole
-dig myapp.yourdomain.com @YOUR_TAILSCALE_IP
+dig myapp.homelab.yourdomain.com @YOUR_TAILSCALE_IP
 
 # Restart Pi-hole
 docker restart pihole
 ```
+
+Ensure Tailscale Split DNS is configured:
+1. Go to https://login.tailscale.com/admin/dns
+2. Add Split DNS: `homelab.YOURDOMAIN` → `YOUR_TAILSCALE_IP`
 
 ### Deploy fails
 

@@ -121,7 +121,7 @@ fi
 if [ "$CREATE_FLAG" = "--create" ]; then
     echo "Creating app '$APP_NAME'..."
     ssh "$DOKKU_HOST" apps:create "$APP_NAME" || true
-    ssh "$DOKKU_HOST" domains:set "$APP_NAME" "$APP_NAME.$DOKKU_DOMAIN"
+    ssh "$DOKKU_HOST" domains:set "$APP_NAME" "$APP_NAME.homelab.$DOKKU_DOMAIN"
 fi
 
 REMOTE_URL="$DOKKU_HOST:$APP_NAME"
@@ -136,7 +136,7 @@ echo "Deploying $APP_NAME..."
 git push dokku "$BRANCH:main"
 
 echo ""
-echo "Deployed: http://$APP_NAME.$DOKKU_DOMAIN"'''
+echo "Deployed: http://$APP_NAME.homelab.$DOKKU_DOMAIN"'''
 
 
 @app.get("/status")
@@ -207,7 +207,7 @@ deploy myapp --create   # First time
 deploy myapp            # Updates
 ```
 
-Your app will be at: http://myapp.{DOMAIN}"""
+Your app will be at: http://myapp.homelab.{DOMAIN}"""
 
 
 @app.get("/setup/agent")
@@ -280,6 +280,6 @@ EOF''',
         'usage': {
             'first_deploy': 'deploy appname --create',
             'subsequent': 'deploy appname',
-            'app_url_pattern': f'http://APPNAME.{DOMAIN}'
+            'app_url_pattern': f'http://APPNAME.homelab.{DOMAIN}'
         }
     }
