@@ -1,0 +1,319 @@
+#!/bin/bash
+set -e
+
+# Homelab CLI - Heroku-like interface for Dokku
+# Usage: homelab <command> [args]
+
+DOKKU_HOST="dokku"  # SSH config alias
+DOKKU_DOMAIN="${DOKKU_DOMAIN:-nate.green}"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Auto-detect app name from git remote
+detect_app() {
+    if git remote -v 2>/dev/null | grep -q "dokku:"; then
+        git remote -v | grep "dokku:" | head -1 | sed 's/.*dokku:\([^[:space:]]*\).*/\1/'
+    fi
+}
+
+# Require app name (use detected or error)
+require_app() {
+    local app="${1:-$(detect_app)}"
+    if [[ -z "$app" ]]; then
+        echo -e "${RED}Error: No app specified and none detected from git remote${NC}" >&2
+        echo "Usage: homelab $COMMAND <app-name>" >&2
+        echo "Or run from a repo with a dokku remote" >&2
+        exit 1
+    fi
+    echo "$app"
+}
+
+# Print app URL
+app_url() {
+    echo "http://${1}.homelab.${DOKKU_DOMAIN}"
+}
+
+case "${1:-help}" in
+    apps|list)
+        # List all apps
+        echo -e "${CYAN}Apps on homelab:${NC}"
+        ssh "$DOKKU_HOST" apps:list | tail -n +2
+        ;;
+
+    create)
+        # Create a new app
+        APP="${2:?Error: app name required}"
+        echo -e "${CYAN}Creating app '$APP'...${NC}"
+        ssh "$DOKKU_HOST" apps:create "$APP"
+        ssh "$DOKKU_HOST" domains:set "$APP" "${APP}.homelab.${DOKKU_DOMAIN}"
+
+        # Add git remote if in a git repo
+        if git rev-parse --git-dir >/dev/null 2>&1; then
+            if git remote | grep -q "^dokku$"; then
+                git remote set-url dokku "dokku:$APP"
+                echo -e "${YELLOW}Updated existing 'dokku' remote${NC}"
+            else
+                git remote add dokku "dokku:$APP"
+                echo -e "${GREEN}Added 'dokku' git remote${NC}"
+            fi
+        fi
+
+        echo -e "${GREEN}App created!${NC} Deploy with: ${CYAN}homelab deploy${NC}"
+        echo -e "URL: $(app_url "$APP")"
+        ;;
+
+    deploy|push)
+        # Deploy app (create if --create flag)
+        shift
+        CREATE=false
+        APP=""
+        BRANCH="main"
+
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --create|-c) CREATE=true; shift ;;
+                --branch|-b) BRANCH="$2"; shift 2 ;;
+                *) APP="$1"; shift ;;
+            esac
+        done
+
+        APP=$(require_app "$APP")
+
+        # Check if in git repo
+        if ! git rev-parse --git-dir >/dev/null 2>&1; then
+            echo -e "${RED}Error: Not in a git repository${NC}" >&2
+            exit 1
+        fi
+
+        # Check for uncommitted changes
+        if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+            echo -e "${YELLOW}Warning: You have uncommitted changes${NC}"
+        fi
+
+        # Create app if requested
+        if [[ "$CREATE" == true ]]; then
+            if ssh "$DOKKU_HOST" apps:exists "$APP" 2>/dev/null; then
+                echo -e "${YELLOW}App '$APP' already exists, deploying...${NC}"
+            else
+                echo -e "${CYAN}Creating app '$APP'...${NC}"
+                ssh "$DOKKU_HOST" apps:create "$APP"
+                ssh "$DOKKU_HOST" domains:set "$APP" "${APP}.homelab.${DOKKU_DOMAIN}"
+            fi
+        fi
+
+        # Ensure git remote exists
+        if ! git remote | grep -q "^dokku$"; then
+            git remote add dokku "dokku:$APP"
+            echo -e "${GREEN}Added 'dokku' git remote${NC}"
+        fi
+
+        # Deploy
+        echo -e "${CYAN}Deploying '$APP' from branch '$BRANCH'...${NC}"
+        git push dokku "$BRANCH:main"
+
+        echo -e "\n${GREEN}Deployed!${NC} $(app_url "$APP")"
+        ;;
+
+    logs)
+        # View app logs
+        shift
+        TAIL=false
+        APP=""
+
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                -t|--tail|-f) TAIL=true; shift ;;
+                *) APP="$1"; shift ;;
+            esac
+        done
+
+        APP=$(require_app "$APP")
+
+        if [[ "$TAIL" == true ]]; then
+            ssh "$DOKKU_HOST" logs "$APP" -t
+        else
+            ssh "$DOKKU_HOST" logs "$APP"
+        fi
+        ;;
+
+    config)
+        # Show/manage config
+        shift
+        APP=$(require_app "$1")
+        echo -e "${CYAN}Config for '$APP':${NC}"
+        ssh "$DOKKU_HOST" config:show "$APP"
+        ;;
+
+    config:set)
+        # Set config vars
+        shift
+        APP="${1:?Error: app name required}"
+        shift
+        [[ $# -eq 0 ]] && { echo "Usage: homelab config:set <app> KEY=value [KEY=value ...]"; exit 1; }
+
+        echo -e "${CYAN}Setting config for '$APP'...${NC}"
+        ssh "$DOKKU_HOST" config:set "$APP" "$@"
+        ;;
+
+    config:unset)
+        # Unset config vars
+        shift
+        APP="${1:?Error: app name required}"
+        shift
+        [[ $# -eq 0 ]] && { echo "Usage: homelab config:unset <app> KEY [KEY ...]"; exit 1; }
+
+        echo -e "${CYAN}Unsetting config for '$APP'...${NC}"
+        ssh "$DOKKU_HOST" config:unset "$APP" "$@"
+        ;;
+
+    run)
+        # Run one-off command
+        shift
+        APP=$(require_app "$1")
+        shift
+        [[ $# -eq 0 ]] && { echo "Usage: homelab run <app> <command>"; exit 1; }
+
+        ssh "$DOKKU_HOST" run "$APP" "$@"
+        ;;
+
+    ps)
+        # Show running processes
+        shift
+        APP=$(require_app "$1")
+        ssh "$DOKKU_HOST" ps:report "$APP"
+        ;;
+
+    restart)
+        # Restart app
+        shift
+        APP=$(require_app "$1")
+        echo -e "${CYAN}Restarting '$APP'...${NC}"
+        ssh "$DOKKU_HOST" ps:restart "$APP"
+        echo -e "${GREEN}Restarted!${NC}"
+        ;;
+
+    stop)
+        # Stop app
+        shift
+        APP=$(require_app "$1")
+        echo -e "${YELLOW}Stopping '$APP'...${NC}"
+        ssh "$DOKKU_HOST" ps:stop "$APP"
+        ;;
+
+    start)
+        # Start app
+        shift
+        APP=$(require_app "$1")
+        echo -e "${CYAN}Starting '$APP'...${NC}"
+        ssh "$DOKKU_HOST" ps:start "$APP"
+        ;;
+
+    destroy|delete)
+        # Destroy app
+        shift
+        APP="${1:?Error: app name required}"
+
+        echo -e "${RED}This will permanently destroy '$APP' and all its data.${NC}"
+        read -p "Type the app name to confirm: " CONFIRM
+
+        if [[ "$CONFIRM" == "$APP" ]]; then
+            ssh "$DOKKU_HOST" apps:destroy "$APP" --force
+            # Remove git remote if it exists
+            if git remote | grep -q "^dokku$" 2>/dev/null; then
+                git remote remove dokku
+                echo -e "${YELLOW}Removed 'dokku' git remote${NC}"
+            fi
+            echo -e "${GREEN}App '$APP' destroyed${NC}"
+        else
+            echo -e "${YELLOW}Aborted${NC}"
+            exit 1
+        fi
+        ;;
+
+    domains)
+        # Show domains
+        shift
+        APP=$(require_app "$1")
+        ssh "$DOKKU_HOST" domains:report "$APP"
+        ;;
+
+    url|open)
+        # Show/open app URL
+        shift
+        APP=$(require_app "$1")
+        URL=$(app_url "$APP")
+        echo "$URL"
+
+        # Open in browser if 'open' command
+        if [[ "${BASH_SOURCE[0]##*/}" == "open" ]] || [[ "$1" == "--open" ]]; then
+            open "$URL" 2>/dev/null || xdg-open "$URL" 2>/dev/null || echo "Open: $URL"
+        fi
+        ;;
+
+    ssh|shell)
+        # Interactive dokku shell
+        ssh -t "$DOKKU_HOST" shell
+        ;;
+
+    dokku)
+        # Pass-through to dokku
+        shift
+        ssh "$DOKKU_HOST" "$@"
+        ;;
+
+    help|--help|-h|"")
+        cat <<EOF
+${CYAN}Homelab CLI${NC} - Heroku-like interface for Dokku
+
+${GREEN}Usage:${NC} homelab <command> [options]
+
+${GREEN}App Management:${NC}
+  apps                    List all apps
+  create <name>           Create a new app (adds git remote)
+  destroy <name>          Permanently delete an app
+
+${GREEN}Deployment:${NC}
+  deploy [name] [--create]  Deploy app (auto-detects from git remote)
+  deploy [name] -b <branch> Deploy specific branch
+
+${GREEN}Runtime:${NC}
+  logs [name] [-t]        View logs (-t to tail/follow)
+  ps [name]               Show running processes
+  run <name> <cmd>        Run one-off command
+  restart [name]          Restart app
+  stop [name]             Stop app
+  start [name]            Start app
+
+${GREEN}Configuration:${NC}
+  config [name]           Show config vars
+  config:set <name> K=V   Set config vars
+  config:unset <name> K   Unset config vars
+  domains [name]          Show domains
+
+${GREEN}Utilities:${NC}
+  url [name]              Show app URL
+  ssh                     Interactive dokku shell
+  dokku <cmd>             Pass-through to dokku
+
+${GREEN}Examples:${NC}
+  homelab create myapp           # Create app, add git remote
+  homelab deploy                 # Deploy (auto-detects app)
+  homelab deploy myapp --create  # Create + deploy in one step
+  homelab logs myapp -t          # Tail logs
+  homelab config:set myapp DEBUG=true
+  homelab run myapp bash         # Interactive shell in container
+
+EOF
+        ;;
+
+    *)
+        echo -e "${RED}Unknown command: $1${NC}" >&2
+        echo "Run 'homelab help' for usage" >&2
+        exit 1
+        ;;
+esac
