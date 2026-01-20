@@ -284,9 +284,19 @@ EOF
                 'description': 'Register the SSH public key with Dokku. User must authenticate to the server.',
                 'run_as': 'human',
                 'requires_user_action': True,
+                'warning': 'Copy this ENTIRE command as a SINGLE LINE. Line breaks will cause errors.',
                 'command': ssh_key_cmd,
                 'note': ssh_key_note,
-                'verify': 'ssh -o BatchMode=yes dokku version'
+                'verify': 'ssh -o BatchMode=yes dokku version',
+                'success_patterns': [
+                    {'output': 'SHA256:', 'meaning': 'Key successfully added'},
+                ],
+                'failure_patterns': [
+                    {'output': 'already exists', 'meaning': 'Key already registered - you can proceed'},
+                    {'output': 'Permission denied', 'meaning': 'Wrong password or user does not exist on server'},
+                    {'output': 'command not found: docker', 'meaning': 'Docker not in PATH - command uses full path, should not happen'},
+                    {'output': 'requires at least', 'meaning': 'Command was split across lines - copy as single line'},
+                ],
             },
             {
                 'step': 5,
