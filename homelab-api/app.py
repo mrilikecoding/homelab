@@ -251,28 +251,23 @@ async def setup_agent():
             {
                 'step': 1,
                 'name': 'Trust host key',
-                'description': 'Add homelab server to known_hosts',
+                'description': 'Add homelab server to known_hosts (idempotent)',
                 'run_as': 'agent',
-                'check': f'ssh-keygen -F "[{ip}]:{SSH_PORT}" 2>/dev/null | grep -q "found"',
-                'command': f'ssh-keyscan -p {SSH_PORT} {ip} >> ~/.ssh/known_hosts 2>/dev/null',
-                'skip_if_check_passes': True
+                'command': f'mkdir -p ~/.ssh && (ssh-keygen -F "[{ip}]:{SSH_PORT}" >/dev/null 2>&1 || ssh-keyscan -p {SSH_PORT} {ip} >> ~/.ssh/known_hosts 2>/dev/null)',
             },
             {
                 'step': 2,
-                'name': 'Check SSH key exists',
-                'description': 'Verify ~/.ssh/id_ed25519 exists, or generate one',
+                'name': 'Ensure SSH key exists',
+                'description': 'Generate SSH key if not present (idempotent)',
                 'run_as': 'agent',
-                'check': 'test -f ~/.ssh/id_ed25519',
-                'command': 'ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""',
-                'skip_if_check_passes': True
+                'command': 'test -f ~/.ssh/id_ed25519 || ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""',
             },
             {
                 'step': 3,
                 'name': 'Add SSH config',
-                'description': 'Add dokku host to SSH config if not present',
+                'description': 'Add dokku host to SSH config if not present (idempotent)',
                 'run_as': 'agent',
-                'check': 'grep -q "Host dokku" ~/.ssh/config 2>/dev/null',
-                'command': f'''mkdir -p ~/.ssh && touch ~/.ssh/config && grep -q "Host dokku" ~/.ssh/config 2>/dev/null || cat >> ~/.ssh/config << 'EOF'
+                'command': f'''mkdir -p ~/.ssh && touch ~/.ssh/config && (grep -q "Host dokku" ~/.ssh/config 2>/dev/null || cat >> ~/.ssh/config << 'EOF'
 
 Host dokku
   HostName {ip}
@@ -280,8 +275,8 @@ Host dokku
   User dokku
   IdentityFile ~/.ssh/id_ed25519
   IdentitiesOnly yes
-EOF''',
-                'skip_if_check_passes': True
+EOF
+)''',
             },
             {
                 'step': 4,
@@ -295,23 +290,18 @@ EOF''',
             },
             {
                 'step': 5,
-                'name': 'Set DOKKU_DOMAIN environment variable',
-                'description': 'Add domain to shell profile if not present',
+                'name': 'Set DOKKU_DOMAIN and PATH in shell profile',
+                'description': 'Add DOKKU_DOMAIN and ~/.local/bin to PATH if not present (idempotent)',
                 'run_as': 'agent',
-                'check': 'grep -q "DOKKU_DOMAIN=" ~/.zshrc 2>/dev/null || grep -q "DOKKU_DOMAIN=" ~/.bashrc 2>/dev/null',
-                'command_zsh': f'grep -q "DOKKU_DOMAIN=" ~/.zshrc 2>/dev/null || echo \'export DOKKU_DOMAIN="{DOMAIN}"\' >> ~/.zshrc',
-                'command_bash': f'grep -q "DOKKU_DOMAIN=" ~/.bashrc 2>/dev/null || echo \'export DOKKU_DOMAIN="{DOMAIN}"\' >> ~/.bashrc',
-                'skip_if_check_passes': True
+                'command_zsh': f'''(grep -q "DOKKU_DOMAIN=" ~/.zshrc 2>/dev/null || echo 'export DOKKU_DOMAIN="{DOMAIN}"' >> ~/.zshrc) && (grep -q 'local/bin' ~/.zshrc 2>/dev/null || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc)''',
+                'command_bash': f'''(grep -q "DOKKU_DOMAIN=" ~/.bashrc 2>/dev/null || echo 'export DOKKU_DOMAIN="{DOMAIN}"' >> ~/.bashrc) && (grep -q 'local/bin' ~/.bashrc 2>/dev/null || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc)''',
             },
             {
                 'step': 6,
                 'name': 'Install deploy script',
-                'description': 'Download and install the deploy helper script to ~/.local/bin',
+                'description': 'Download deploy script to ~/.local/bin (idempotent, always fetches latest)',
                 'run_as': 'agent',
-                'check': 'test -x ~/.local/bin/deploy || test -x /usr/local/bin/deploy',
                 'command': f'mkdir -p ~/.local/bin && curl -fsSL -o ~/.local/bin/deploy {GITHUB_REPO}/raw/main/deploy && chmod +x ~/.local/bin/deploy',
-                'post_note': 'Ensure ~/.local/bin is in your PATH. Add to shell profile: export PATH="$HOME/.local/bin:$PATH"',
-                'skip_if_check_passes': True
             }
         ],
         'verification': {
