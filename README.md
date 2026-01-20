@@ -79,11 +79,14 @@ Claude will fetch the configuration and guide you through setup.
 On any machine connected to your Tailnet:
 
 ```bash
-# 1. Get your server's Tailscale IP
+# 1. Set your server's Tailscale IP
 HOMELAB_IP="your-tailscale-ip"
 
-# 2. Add SSH config
-cat >> ~/.ssh/config << EOF
+# 2. Trust the host key
+ssh-keyscan -p 3022 $HOMELAB_IP >> ~/.ssh/known_hosts
+
+# 3. Add SSH config (idempotent)
+grep -q "Host dokku" ~/.ssh/config 2>/dev/null || cat >> ~/.ssh/config << EOF
 
 Host dokku
   HostName $HOMELAB_IP
@@ -93,16 +96,18 @@ Host dokku
   IdentitiesOnly yes
 EOF
 
-# 3. Add your SSH key to Dokku
-cat ~/.ssh/id_ed25519.pub | ssh user@$HOMELAB_IP "docker exec -i dokku dokku ssh-keys:add $(whoami)"
+# 4. Add your SSH key to Dokku (replace YOUR_USER and KEYNAME)
+cat ~/.ssh/id_ed25519.pub | ssh YOUR_USER@$HOMELAB_IP "/usr/local/bin/docker exec -i dokku dokku ssh-keys:add KEYNAME"
 
-# 4. Set your domain
+# 5. Set your domain and PATH
 echo 'export DOKKU_DOMAIN=yourdomain.com' >> ~/.zshrc
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 
-# 5. Install deploy script
-sudo curl -o /usr/local/bin/deploy https://raw.githubusercontent.com/mrilikecoding/homelab/main/deploy
-sudo chmod +x /usr/local/bin/deploy
+# 6. Install deploy script (no sudo needed)
+mkdir -p ~/.local/bin
+curl -fsSL -o ~/.local/bin/deploy https://raw.githubusercontent.com/mrilikecoding/homelab/main/deploy
+chmod +x ~/.local/bin/deploy
 ```
 
 ---
@@ -171,7 +176,8 @@ The homelab includes a self-documenting API at `http://api.homelab.YOURDOMAIN` t
 | Endpoint | Description |
 |----------|-------------|
 | `GET /` | Overview and available endpoints |
-| `GET /setup` | Complete setup instructions for remote machines |
+| `GET /setup` | Human-readable setup instructions (markdown) |
+| `GET /setup/agent` | Machine-readable setup for AI assistants (JSON) |
 | `GET /ssh-config` | SSH config snippet ready to append |
 | `GET /deploy-script` | The deploy script content |
 | `GET /status` | Current Dokku apps and their status |
@@ -273,7 +279,7 @@ APP_DOMAIN="yourdomain.com"
 | Path | Purpose |
 |------|---------|
 | `~/.ssh/config` | SSH config with dokku host |
-| `/usr/local/bin/deploy` | Deploy script |
+| `~/.local/bin/deploy` | Deploy script |
 | `DOKKU_DOMAIN` env var | Your domain |
 
 ---
