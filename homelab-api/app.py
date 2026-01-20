@@ -225,15 +225,15 @@ async def setup_agent():
     ip = get_tailscale_ip()
 
     # Build the SSH key registration command
+    # Use full docker path and a descriptive key name instead of $(whoami) which expands locally
     if HOMELAB_USER:
-        ssh_key_cmd = f'cat ~/.ssh/id_ed25519.pub | ssh {HOMELAB_USER}@{ip} "docker exec -i dokku dokku ssh-keys:add $(whoami)"'
-        ssh_key_note = f'User will be prompted for {HOMELAB_USER}\'s password on the homelab server.'
+        ssh_key_cmd = f'KEYNAME="$(hostname -s)" && cat ~/.ssh/id_ed25519.pub | ssh {HOMELAB_USER}@{ip} "/usr/local/bin/docker exec -i dokku dokku ssh-keys:add $KEYNAME"'
+        ssh_key_note = f'User will be prompted for {HOMELAB_USER}\'s password on the homelab server. Key will be named after this machine\'s hostname.'
     else:
-        ssh_key_cmd = f'cat ~/.ssh/id_ed25519.pub | ssh USER@{ip} "docker exec -i dokku dokku ssh-keys:add $(whoami)"'
-        ssh_key_note = 'Replace USER with the username on the homelab server. User will be prompted for password.'
+        ssh_key_cmd = f'KEYNAME="$(hostname -s)" && cat ~/.ssh/id_ed25519.pub | ssh USER@{ip} "/usr/local/bin/docker exec -i dokku dokku ssh-keys:add $KEYNAME"'
+        ssh_key_note = 'Replace USER with the username on the homelab server. User will be prompted for password. Key will be named after this machine\'s hostname.'
 
     return {
-        'schema_version': '1.1',
         'instructions': 'Follow these steps to configure this machine for homelab deployments',
         'config': {
             'domain': DOMAIN,
@@ -291,10 +291,9 @@ EOF
             {
                 'step': 5,
                 'name': 'Set DOKKU_DOMAIN and PATH in shell profile',
-                'description': 'Add DOKKU_DOMAIN and ~/.local/bin to PATH if not present (idempotent)',
+                'description': 'Add DOKKU_DOMAIN and ~/.local/bin to PATH if not present (idempotent, detects shell)',
                 'run_as': 'agent',
-                'command_zsh': f'''(grep -q "DOKKU_DOMAIN=" ~/.zshrc 2>/dev/null || echo 'export DOKKU_DOMAIN="{DOMAIN}"' >> ~/.zshrc) && (grep -q 'local/bin' ~/.zshrc 2>/dev/null || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc)''',
-                'command_bash': f'''(grep -q "DOKKU_DOMAIN=" ~/.bashrc 2>/dev/null || echo 'export DOKKU_DOMAIN="{DOMAIN}"' >> ~/.bashrc) && (grep -q 'local/bin' ~/.bashrc 2>/dev/null || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc)''',
+                'command': f'''PROFILE="$HOME/.$(basename "$SHELL")rc" && touch "$PROFILE" && (grep -q "DOKKU_DOMAIN=" "$PROFILE" 2>/dev/null || echo 'export DOKKU_DOMAIN="{DOMAIN}"' >> "$PROFILE") && (grep -q 'local/bin' "$PROFILE" 2>/dev/null || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$PROFILE")''',
             },
             {
                 'step': 6,
