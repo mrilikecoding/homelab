@@ -395,6 +395,37 @@ case "${1:-help}" in
         fi
         ;;
 
+    # =========================================================================
+    # Update Command
+    # =========================================================================
+    update)
+        # Update the homelab CLI
+        echo -e "${CYAN}Updating homelab CLI...${NC}"
+
+        # Detect if we're running from a git repo or standalone install
+        if [[ -d "$SCRIPT_DIR/.git" ]]; then
+            # Running from git repo (server)
+            echo "Pulling latest changes..."
+            cd "$SCRIPT_DIR"
+            git pull
+            echo -e "${GREEN}Updated from git repository${NC}"
+        else
+            # Standalone install (client)
+            echo "Downloading latest version..."
+            INSTALL_PATH="${BASH_SOURCE[0]}"
+            curl -fsSL -o "$INSTALL_PATH.tmp" https://raw.githubusercontent.com/mrilikecoding/homelab/main/homelab
+            if [[ -s "$INSTALL_PATH.tmp" ]]; then
+                mv "$INSTALL_PATH.tmp" "$INSTALL_PATH"
+                chmod +x "$INSTALL_PATH"
+                echo -e "${GREEN}Updated successfully${NC}"
+            else
+                rm -f "$INSTALL_PATH.tmp"
+                echo -e "${RED}Update failed - could not download${NC}"
+                exit 1
+            fi
+        fi
+        ;;
+
     help|--help|-h|"")
         cat <<EOF
 ${CYAN}Homelab CLI${NC} - Heroku-like interface for Dokku
@@ -442,6 +473,7 @@ ${GREEN}Utilities:${NC}
   url [name]              Show app URL
   ssh                     Interactive dokku shell
   dokku <cmd>             Pass-through to dokku
+  update                  Update the homelab CLI
 
 ${GREEN}Examples:${NC}
   homelab create myapp           # Create app, add git remote
