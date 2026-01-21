@@ -1,15 +1,24 @@
 # Homelab
 
-A lightweight, extensible platform for running a combined homelab and development server on macOS. Deploy containerized apps with `git push`, access everything securely via Tailscale, and optionally expose services to the public internet.
+Your own Heroku, running on a Mac. A lightweight platform for deploying containerized apps with a familiar CLI experience — `homelab deploy` and you're live.
+
+```bash
+homelab deploy myapp --create   # First deploy: creates app + deploys
+homelab logs -t                 # Tail logs (auto-detects app from git remote)
+homelab config:set KEY=value    # Set environment variables
+```
+
+Built on [Dokku](https://dokku.com), secured with [Tailscale](https://tailscale.com), with optional network-wide ad blocking via Pi-hole.
 
 ## What You Get
 
-- **Git push to deploy** - Push code, get a running app (like Heroku, but yours)
-- **Network-wide ad blocking** - Pi-hole for all devices on your network
+- **Heroku-like CLI** - `homelab deploy`, `homelab logs`, `homelab config` — muscle memory transfers
+- **Git push to deploy** - Push code, get a running app at `myapp.homelab.yourdomain.com`
+- **Auto-detection** - CLI detects app name from git remote, no need to specify it every time
 - **Private by default** - Everything accessible only via Tailscale VPN
 - **Custom domains** - Wildcard DNS for automatic subdomain routing
-- **Zero config deploys** - Deploy from any machine with one command
-- **Self-documenting API** - Query the server for setup instructions
+- **AI-friendly setup** - Self-documenting API that Claude (or any agent) can follow
+- **Network-wide ad blocking** - Pi-hole for all devices on your network
 
 ## Architecture
 
