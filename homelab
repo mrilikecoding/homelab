@@ -6,6 +6,7 @@ set -e
 
 DOKKU_HOST="dokku"  # SSH config alias
 DOKKU_DOMAIN="${DOKKU_DOMAIN:-nate.green}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Colors
 RED='\033[0;31m'
@@ -33,9 +34,14 @@ require_app() {
     echo "$app"
 }
 
-# Print app URL
+# Print app URL (https if certs are set up)
 app_url() {
-    echo "http://${1}.homelab.${DOKKU_DOMAIN}"
+    local app="$1"
+    if [[ -f "$SCRIPT_DIR/dokku/certs/server.crt" ]]; then
+        echo "https://${app}.homelab.${DOKKU_DOMAIN}"
+    else
+        echo "http://${app}.homelab.${DOKKU_DOMAIN}"
+    fi
 }
 
 case "${1:-help}" in
@@ -266,6 +272,129 @@ case "${1:-help}" in
         ssh "$DOKKU_HOST" "$@"
         ;;
 
+    # =========================================================================
+    # HTTPS Commands
+    # =========================================================================
+    https:setup)
+        # Set up HTTPS with Let's Encrypt
+        "$SCRIPT_DIR/setup-https.sh"
+        ;;
+
+    https:status)
+        # Show HTTPS status
+        echo -e "${CYAN}HTTPS Status${NC}"
+        echo ""
+        if [[ -f "$SCRIPT_DIR/dokku/certs/server.crt" ]]; then
+            echo -e "${GREEN}✓ HTTPS is configured${NC}"
+            echo ""
+            # Show cert info
+            CERT_INFO=$(openssl x509 -in "$SCRIPT_DIR/dokku/certs/server.crt" -noout -subject -dates 2>/dev/null)
+            echo "Certificate:"
+            echo "$CERT_INFO" | sed 's/^/  /'
+        else
+            echo -e "${YELLOW}✗ HTTPS is not configured${NC}"
+            echo ""
+            echo "Run 'homelab https:setup' to configure HTTPS"
+        fi
+        ;;
+
+    https:renew)
+        # Manually renew certificates
+        "$SCRIPT_DIR/renew-certs.sh"
+        ;;
+
+    # =========================================================================
+    # Public Access Commands (Cloudflare Tunnel)
+    # =========================================================================
+    tunnel:setup)
+        # Set up Cloudflare Tunnel
+        "$SCRIPT_DIR/setup-tunnel.sh"
+        ;;
+
+    public)
+        # Make an app public
+        shift
+        APP="${1:?Error: app name required}"
+        HOSTNAME="${2:-$APP.$DOKKU_DOMAIN}"
+
+        if [[ ! -f "$SCRIPT_DIR/setup-tunnel.sh" ]]; then
+            echo -e "${RED}Error: Tunnel not set up. Run 'homelab tunnel:setup' first${NC}"
+            exit 1
+        fi
+
+        # Check if tunnel is configured
+        if [[ ! -f "$HOME/.cloudflared/config.yml" ]]; then
+            echo -e "${YELLOW}Cloudflare Tunnel not configured. Setting up...${NC}"
+            "$SCRIPT_DIR/setup-tunnel.sh"
+        fi
+
+        "$SCRIPT_DIR/tunnel-add-app.sh" "$APP" "$HOSTNAME"
+
+        # Restart tunnel
+        sudo launchctl kickstart -k system/com.homelab.tunnel 2>/dev/null || {
+            sudo launchctl load /Library/LaunchDaemons/com.homelab.tunnel.plist 2>/dev/null || true
+        }
+        ;;
+
+    private)
+        # Make an app private (remove from public)
+        shift
+        APP="${1:?Error: app name required}"
+
+        "$SCRIPT_DIR/tunnel-remove-app.sh" "$APP"
+
+        # Restart tunnel if it's running
+        sudo launchctl kickstart -k system/com.homelab.tunnel 2>/dev/null || true
+        ;;
+
+    public:list)
+        # List public apps
+        "$SCRIPT_DIR/tunnel-list-apps.sh"
+        ;;
+
+    tunnel:status)
+        # Show tunnel status
+        echo -e "${CYAN}Cloudflare Tunnel Status${NC}"
+        echo ""
+        if [[ -f "$HOME/.cloudflared/config.yml" ]]; then
+            echo -e "${GREEN}✓ Tunnel is configured${NC}"
+            echo ""
+
+            # Check if running
+            if sudo launchctl list | grep -q "com.homelab.tunnel"; then
+                echo -e "Status: ${GREEN}Running${NC}"
+            else
+                echo -e "Status: ${YELLOW}Stopped${NC}"
+            fi
+            echo ""
+
+            # Show public apps
+            "$SCRIPT_DIR/tunnel-list-apps.sh"
+        else
+            echo -e "${YELLOW}✗ Tunnel is not configured${NC}"
+            echo ""
+            echo "Run 'homelab tunnel:setup' to configure"
+        fi
+        ;;
+
+    tunnel:restart)
+        # Restart the tunnel
+        echo -e "${CYAN}Restarting Cloudflare Tunnel...${NC}"
+        sudo launchctl kickstart -k system/com.homelab.tunnel 2>/dev/null || {
+            sudo launchctl load /Library/LaunchDaemons/com.homelab.tunnel.plist
+        }
+        echo -e "${GREEN}Tunnel restarted${NC}"
+        ;;
+
+    tunnel:logs)
+        # View tunnel logs
+        if [[ "$2" == "-f" || "$2" == "--follow" ]]; then
+            tail -f /tmp/homelab-tunnel.log
+        else
+            cat /tmp/homelab-tunnel.log
+        fi
+        ;;
+
     help|--help|-h|"")
         cat <<EOF
 ${CYAN}Homelab CLI${NC} - Heroku-like interface for Dokku
@@ -295,6 +424,20 @@ ${GREEN}Configuration:${NC}
   config:unset <name> K   Unset config vars
   domains [name]          Show domains
 
+${GREEN}HTTPS:${NC}
+  https:setup             Set up HTTPS with Let's Encrypt
+  https:status            Show certificate status
+  https:renew             Manually renew certificates
+
+${GREEN}Public Access:${NC}
+  tunnel:setup            Set up Cloudflare Tunnel
+  public <app> [host]     Make app public (optional custom hostname)
+  private <app>           Make app private again
+  public:list             List all public apps
+  tunnel:status           Show tunnel status
+  tunnel:restart          Restart the tunnel
+  tunnel:logs [-f]        View tunnel logs
+
 ${GREEN}Utilities:${NC}
   url [name]              Show app URL
   ssh                     Interactive dokku shell
@@ -307,6 +450,12 @@ ${GREEN}Examples:${NC}
   homelab logs myapp -t          # Tail logs
   homelab config:set myapp DEBUG=true
   homelab run myapp bash         # Interactive shell in container
+
+${GREEN}HTTPS & Public Access Examples:${NC}
+  homelab https:setup            # Set up wildcard cert (interactive)
+  homelab public myapp           # Make public at myapp.yourdomain.com
+  homelab public myapp api.yourdomain.com  # Custom public hostname
+  homelab private myapp          # Remove from public access
 
 EOF
         ;;

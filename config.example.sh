@@ -40,3 +40,13 @@ TAILSCALE_IP=""  # Will be auto-detected if left empty
 # Username for SSH access to this homelab server (for remote machine setup)
 # This enables fully automated setup - agents won't need to ask for the username
 HOMELAB_USER=""  # e.g., "nate" - leave empty to require manual entry
+
+# =============================================================================
+# HTTPS / Let's Encrypt settings
+# =============================================================================
+# Email for Let's Encrypt certificate notifications
+LETSENCRYPT_EMAIL=""  # e.g., "you@example.com"
+
+# DNS provider for certificate validation (optional - will prompt if not set)
+# Supported: porkbun, cloudflare, route53, google, digitalocean, namecheap, manual
+CERTBOT_DNS_PLUGIN=""  # e.g., "porkbun"

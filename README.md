@@ -288,28 +288,109 @@ homelab ssh                     # Interactive dokku shell
 
 ---
 
+## HTTPS Setup
+
+By default, apps use HTTP. To enable HTTPS with valid Let's Encrypt certificates:
+
+```bash
+homelab https:setup
+```
+
+This interactive wizard will:
+1. Install certbot and your DNS provider's plugin
+2. Request a wildcard certificate for `*.homelab.YOURDOMAIN`
+3. Configure Dokku to use the certificate
+4. Set up automatic weekly renewal
+
+### Supported DNS Providers
+
+The certificate setup uses DNS-01 validation, which works without exposing your homelab publicly. Supported providers:
+
+| Provider | Plugin | API Key Location |
+|----------|--------|------------------|
+| Porkbun | `certbot-dns-porkbun` | https://porkbun.com/account/api |
+| Cloudflare | `certbot-dns-cloudflare` | https://dash.cloudflare.com/profile/api-tokens |
+| Route 53 | `certbot-dns-route53` | AWS IAM credentials |
+| Google Cloud | `certbot-dns-google` | Service account JSON |
+| DigitalOcean | `certbot-dns-digitalocean` | https://cloud.digitalocean.com/account/api/tokens |
+| Namecheap | `certbot-dns-namecheap` | https://ap.www.namecheap.com/settings/tools/apiaccess/ |
+| Manual | N/A | You add TXT records manually |
+
+### HTTPS Commands
+
+```bash
+homelab https:setup    # Initial setup (interactive)
+homelab https:status   # Show certificate info
+homelab https:renew    # Manually renew certificates
+```
+
+### Configuration
+
+Add to `config.sh` to skip prompts:
+
+```bash
+LETSENCRYPT_EMAIL="you@example.com"
+CERTBOT_DNS_PLUGIN="porkbun"  # or cloudflare, route53, etc.
+```
+
+---
+
 ## Exposing Apps Publicly
 
-By default, apps are only accessible via Tailscale.
+By default, apps are only accessible via Tailscale. To make specific apps publicly accessible while keeping everything else private, use Cloudflare Tunnel.
 
-### Tailscale Funnel (Easiest)
+### Quick Start
+
+```bash
+# One-time setup (requires Cloudflare account with your domain)
+homelab tunnel:setup
+
+# Make an app public
+homelab public myapp                    # → https://myapp.yourdomain.com
+homelab public myapp api.yourdomain.com # → custom hostname
+
+# Make it private again
+homelab private myapp
+
+# List public apps
+homelab public:list
+```
+
+### How It Works
+
+```
+Internet                              Your Tailnet (Private)
+────────                              ──────────────────────
+myapp.nate.green ──► Cloudflare ──► Tunnel ──► Dokku ──► myapp
+                         │
+                         ✗ Cannot reach *.homelab.nate.green
+```
+
+- Only apps you explicitly make public are accessible
+- `*.homelab.YOURDOMAIN` stays completely private (Tailnet-only)
+- Cloudflare handles HTTPS for the public hostname
+- You can use any hostname on your domain
+
+### Tunnel Commands
+
+```bash
+homelab tunnel:setup    # Initial Cloudflare Tunnel setup
+homelab tunnel:status   # Show tunnel status and public apps
+homelab tunnel:restart  # Restart the tunnel
+homelab tunnel:logs     # View tunnel logs
+homelab tunnel:logs -f  # Follow tunnel logs
+```
+
+### Alternative: Tailscale Funnel
+
+For quick, temporary sharing without Cloudflare:
 
 ```bash
 # On your server
 tailscale funnel --bg 443
 ```
 
-Add a CNAME: `public.yourdomain.com → your-machine.tailnet-name.ts.net`
-
-### Cloudflare Tunnel
-
-```bash
-brew install cloudflared
-cloudflared tunnel login
-cloudflared tunnel create homelab
-# Configure ~/.cloudflared/config.yml
-cloudflared tunnel run homelab
-```
+This exposes your entire port 443 via `your-machine.tailnet-name.ts.net`. Less control, but simpler for one-off sharing.
 
 ---
 
@@ -346,7 +427,11 @@ APP_DOMAIN="yourdomain.com"
 | Path | Purpose |
 |------|---------|
 | `~/homelab/` | This repo |
+| `~/homelab/dokku/certs/` | SSL certificates for Dokku |
 | `~/pihole/` | Pi-hole config and data |
+| `~/.homelab/certs/` | Let's Encrypt certificate storage |
+| `~/.homelab/credentials/` | DNS provider API credentials |
+| `~/.cloudflared/` | Cloudflare Tunnel config |
 | `/Library/LaunchDaemons/com.homelab.*` | Startup services |
 
 ### Dev Machine
