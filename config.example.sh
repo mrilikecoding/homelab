@@ -50,3 +50,18 @@ LETSENCRYPT_EMAIL=""  # e.g., "you@example.com"
 # DNS provider for certificate validation (optional - will prompt if not set)
 # Supported: porkbun, cloudflare, route53, google, digitalocean, namecheap, manual
 CERTBOT_DNS_PLUGIN=""  # e.g., "porkbun"
+
+# =============================================================================
+# Circuit Breaker settings (auto-disables public apps if overloaded)
+# =============================================================================
+# CPU percentage threshold (0-100)
+CIRCUIT_BREAKER_CPU_THRESHOLD=80
+
+# Load average threshold (1-minute)
+CIRCUIT_BREAKER_LOAD_THRESHOLD=4.0
+
+# Number of consecutive high-load checks before tripping
+CIRCUIT_BREAKER_CHECKS=3
+
+# Optional: Webhook URL for notifications (Slack, Discord, etc.)
+# CIRCUIT_BREAKER_WEBHOOK="https://hooks.slack.com/services/xxx"

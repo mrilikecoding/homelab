@@ -429,6 +429,75 @@ case "${1:-help}" in
         ;;
 
     # =========================================================================
+    # Circuit Breaker Commands
+    # =========================================================================
+    circuit-breaker:status|cb:status)
+        # Show circuit breaker status
+        "$SCRIPT_DIR/circuit-breaker.sh" status
+        ;;
+
+    circuit-breaker:restore|cb:restore)
+        # Restore apps disabled by circuit breaker
+        "$SCRIPT_DIR/circuit-breaker.sh" restore
+        ;;
+
+    circuit-breaker:logs|cb:logs)
+        # View circuit breaker logs
+        "$SCRIPT_DIR/circuit-breaker.sh" logs
+        ;;
+
+    circuit-breaker:test|cb:test)
+        # Test the circuit breaker (will trip immediately)
+        "$SCRIPT_DIR/circuit-breaker.sh" test
+        ;;
+
+    circuit-breaker:enable|cb:enable)
+        # Enable the circuit breaker daemon
+        echo -e "${CYAN}Enabling circuit breaker...${NC}"
+
+        # Create launchd plist
+        sudo tee /Library/LaunchDaemons/com.homelab.circuitbreaker.plist > /dev/null << PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.homelab.circuitbreaker</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${SCRIPT_DIR}/circuit-breaker.sh</string>
+        <string>check</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>60</integer>
+    <key>StandardOutPath</key>
+    <string>/tmp/homelab-circuitbreaker.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/homelab-circuitbreaker.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>${HOME}</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
+PLIST
+
+        sudo launchctl unload /Library/LaunchDaemons/com.homelab.circuitbreaker.plist 2>/dev/null || true
+        sudo launchctl load /Library/LaunchDaemons/com.homelab.circuitbreaker.plist
+        echo -e "${GREEN}Circuit breaker enabled (checks every 60 seconds)${NC}"
+        ;;
+
+    circuit-breaker:disable|cb:disable)
+        # Disable the circuit breaker daemon
+        echo -e "${YELLOW}Disabling circuit breaker...${NC}"
+        sudo launchctl unload /Library/LaunchDaemons/com.homelab.circuitbreaker.plist 2>/dev/null || true
+        echo -e "${GREEN}Circuit breaker disabled${NC}"
+        ;;
+
+    # =========================================================================
     # Update Command
     # =========================================================================
     update)
@@ -502,6 +571,14 @@ ${GREEN}Public Access:${NC}
   tunnel:status           Show tunnel status
   tunnel:restart          Restart the tunnel
   tunnel:logs [-f]        View tunnel logs
+
+${GREEN}Circuit Breaker:${NC}
+  cb:enable               Enable auto-protection (checks every 60s)
+  cb:disable              Disable auto-protection
+  cb:status               Show current load and thresholds
+  cb:restore              Re-enable apps disabled by circuit breaker
+  cb:logs                 View circuit breaker logs
+  cb:test                 Test the circuit breaker (will trip!)
 
 ${GREEN}Utilities:${NC}
   url [name]              Show app URL
