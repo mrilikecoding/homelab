@@ -104,10 +104,10 @@ echo 'export DOKKU_DOMAIN=yourdomain.com' >> ~/.zshrc
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 
-# 6. Install deploy script (no sudo needed)
+# 6. Install homelab CLI (no sudo needed)
 mkdir -p ~/.local/bin
-curl -fsSL -o ~/.local/bin/deploy https://raw.githubusercontent.com/mrilikecoding/homelab/main/deploy
-chmod +x ~/.local/bin/deploy
+curl -fsSL -o ~/.local/bin/homelab https://raw.githubusercontent.com/mrilikecoding/homelab/main/homelab
+chmod +x ~/.local/bin/homelab
 ```
 
 ---
@@ -118,19 +118,22 @@ chmod +x ~/.local/bin/deploy
 
 ```bash
 cd my-app
-deploy myapp --create
+homelab deploy myapp --create
 ```
 
 This:
 1. Creates the app in Dokku
 2. Sets domain to `myapp.homelab.YOURDOMAIN`
-3. Pushes and builds your code
+3. Adds a `dokku` git remote to your repo
+4. Pushes and builds your code
 
 ### Subsequent Deploys
 
 ```bash
-deploy myapp
+homelab deploy
 ```
+
+The CLI auto-detects the app name from your git remote, so you don't need to specify it after the first deploy.
 
 ### What You Need
 
@@ -162,7 +165,7 @@ CMD ["node", "server.js"]
 EOF
 
 git add . && git commit -m "Initial commit"
-deploy hello --create
+homelab deploy hello --create
 ```
 
 Visit `http://hello.homelab.YOURDOMAIN`
@@ -179,7 +182,7 @@ The homelab includes a self-documenting API at `http://api.homelab.YOURDOMAIN` t
 | `GET /setup` | Human-readable setup instructions (markdown) |
 | `GET /setup/agent` | Machine-readable setup for AI assistants (JSON) |
 | `GET /ssh-config` | SSH config snippet ready to append |
-| `GET /deploy-script` | The deploy script content |
+| `GET /deploy-script` | The homelab CLI script |
 | `GET /status` | Current Dokku apps and their status |
 | `GET /config` | Server configuration (domain, IPs, ports) |
 
@@ -195,20 +198,83 @@ Claude will:
 1. Fetch the setup instructions
 2. Create the SSH config
 3. Guide you through adding your SSH key
-4. Install the deploy script
+4. Install the homelab CLI
 5. Set the required environment variables
+
+---
+
+## Homelab CLI Reference
+
+The `homelab` CLI provides a Heroku-like interface for Dokku:
+
+```
+Usage: homelab <command> [options]
+
+App Management:
+  apps                    List all apps
+  create <name>           Create a new app (adds git remote)
+  destroy <name>          Permanently delete an app
+
+Deployment:
+  deploy [name] [--create]  Deploy app (auto-detects from git remote)
+  deploy [name] -b <branch> Deploy specific branch
+
+Runtime:
+  logs [name] [-t]        View logs (-t to tail/follow)
+  ps [name]               Show running processes
+  run <name> <cmd>        Run one-off command
+  restart [name]          Restart app
+  stop [name]             Stop app
+  start [name]            Start app
+
+Configuration:
+  config [name]           Show config vars
+  config:set <name> K=V   Set config vars
+  config:unset <name> K   Unset config vars
+  domains [name]          Show domains
+
+Utilities:
+  url [name]              Show app URL
+  ssh                     Interactive dokku shell
+  dokku <cmd>             Pass-through to dokku
+```
+
+**Auto-detection:** When run from a git repo with a `dokku` remote, commands like `deploy`, `logs`, `ps`, `config`, and `url` automatically detect the app name.
 
 ---
 
 ## Managing Apps
 
+The `homelab` CLI provides Heroku-like commands for managing your apps:
+
 ```bash
-# Via SSH (from any machine)
-ssh dokku apps:list
-ssh dokku logs myapp -t
-ssh dokku ps:restart myapp
-ssh dokku config:set myapp KEY=value
-ssh dokku apps:destroy myapp --force
+homelab apps                    # List all apps
+homelab logs myapp              # View logs
+homelab logs myapp -t           # Tail/follow logs
+homelab ps myapp                # Show process status
+homelab restart myapp           # Restart app
+homelab config myapp            # Show config vars
+homelab config:set myapp KEY=val  # Set config var
+homelab run myapp bash          # Run one-off command
+homelab destroy myapp           # Delete app (with confirmation)
+```
+
+When you're inside a repo with a `dokku` git remote, you can omit the app name:
+
+```bash
+cd my-app
+homelab logs                    # Auto-detects app from git remote
+homelab restart
+homelab config
+```
+
+### Direct Dokku Access
+
+For commands not wrapped by the CLI, use pass-through:
+
+```bash
+homelab dokku nginx:show-config myapp
+homelab ssh                     # Interactive dokku shell
 ```
 
 ---
@@ -279,7 +345,7 @@ APP_DOMAIN="yourdomain.com"
 | Path | Purpose |
 |------|---------|
 | `~/.ssh/config` | SSH config with dokku host |
-| `~/.local/bin/deploy` | Deploy script |
+| `~/.local/bin/homelab` | Homelab CLI |
 | `DOKKU_DOMAIN` env var | Your domain |
 
 ---
