@@ -31,10 +31,7 @@ echo ""
 # =============================================================================
 echo -e "${CYAN}==> Checking prerequisites...${NC}"
 
-if ! command -v certbot &> /dev/null; then
-    echo -e "${YELLOW}Installing certbot...${NC}"
-    brew install certbot
-fi
+# certbot will be installed via pipx in install_dns_plugin if needed
 
 # =============================================================================
 # DNS Provider Configuration
@@ -92,24 +89,38 @@ install_dns_plugin() {
     local plugin=$1
     echo -e "${YELLOW}Installing certbot-dns-${plugin}...${NC}"
 
+    # Use pipx for installing Python CLI applications (modern macOS requirement)
+    if ! command -v pipx &> /dev/null; then
+        echo "Installing pipx..."
+        brew install pipx
+        pipx ensurepath
+    fi
+
+    # Install certbot via pipx if not already installed
+    if ! pipx list | grep -q certbot; then
+        echo "Installing certbot via pipx..."
+        pipx install certbot
+    fi
+
+    # Inject the DNS plugin into the certbot environment
     case "$plugin" in
         porkbun)
-            pip3 install certbot-dns-porkbun 2>/dev/null || pip install certbot-dns-porkbun
+            pipx inject certbot certbot-dns-porkbun
             ;;
         cloudflare)
-            pip3 install certbot-dns-cloudflare 2>/dev/null || pip install certbot-dns-cloudflare
+            pipx inject certbot certbot-dns-cloudflare
             ;;
         route53)
-            pip3 install certbot-dns-route53 2>/dev/null || pip install certbot-dns-route53
+            pipx inject certbot certbot-dns-route53
             ;;
         google)
-            pip3 install certbot-dns-google 2>/dev/null || pip install certbot-dns-google
+            pipx inject certbot certbot-dns-google
             ;;
         digitalocean)
-            pip3 install certbot-dns-digitalocean 2>/dev/null || pip install certbot-dns-digitalocean
+            pipx inject certbot certbot-dns-digitalocean
             ;;
         namecheap)
-            pip3 install certbot-dns-namecheap 2>/dev/null || pip install certbot-dns-namecheap
+            pipx inject certbot certbot-dns-namecheap
             ;;
     esac
 }
@@ -279,60 +290,13 @@ echo "  Private key: $CERT_PATH/privkey.pem"
 echo ""
 echo -e "${CYAN}==> Configuring Dokku to use wildcard certificate...${NC}"
 
-# Copy certs to a location Dokku can access
+# Copy certs to a location we can use
 DOKKU_CERT_DIR="$SCRIPT_DIR/dokku/certs"
 mkdir -p "$DOKKU_CERT_DIR"
 cp "$CERT_PATH/fullchain.pem" "$DOKKU_CERT_DIR/server.crt"
 cp "$CERT_PATH/privkey.pem" "$DOKKU_CERT_DIR/server.key"
 
-# Update docker-compose to mount certs
-if ! grep -q "certs:/certs" "$SCRIPT_DIR/dokku/docker-compose.yml"; then
-    # Add certs volume to docker-compose
-    cat > "$SCRIPT_DIR/dokku/docker-compose.yml" << DOKKUCOMPOSE
-services:
-  dokku:
-    image: dokku/dokku:0.35.15
-    container_name: dokku
-    restart: unless-stopped
-    network_mode: bridge
-    ports:
-      - "${DOKKU_SSH_PORT}:22"
-      - "80:80"
-      - "443:443"
-    volumes:
-      - dokku_data:/mnt/dokku
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./certs:/certs:ro
-    environment:
-      DOKKU_HOSTNAME: ${DOKKU_HOSTNAME}
-      DOKKU_HOST_ROOT: /mnt/dokku/home/dokku
-      DOKKU_LIB_HOST_ROOT: /mnt/dokku/var/lib/dokku
-
-volumes:
-  dokku_data:
-DOKKUCOMPOSE
-fi
-
-# Restart Dokku to pick up new volume
-echo "Restarting Dokku..."
-cd "$SCRIPT_DIR/dokku"
-docker compose up -d
-
-# Wait for Dokku to be ready
-sleep 10
-
-# Set global certificate for all apps
-echo "Setting global certificate..."
-docker exec dokku bash -c "cat /certs/server.crt /certs/server.key > /tmp/cert-combined.pem"
-docker exec dokku dokku certs:set --global < <(docker exec dokku cat /tmp/cert-combined.pem) 2>/dev/null || {
-    # Fallback: set cert per-app using a global nginx config
-    echo "Setting up nginx SSL configuration..."
-    docker exec dokku bash -c 'mkdir -p /mnt/dokku/home/dokku/.ssl'
-    docker exec dokku bash -c 'cp /certs/server.crt /mnt/dokku/home/dokku/.ssl/server.crt'
-    docker exec dokku bash -c 'cp /certs/server.key /mnt/dokku/home/dokku/.ssl/server.key'
-}
-
-echo -e "${GREEN}Dokku configured with SSL certificate!${NC}"
+echo -e "${GREEN}Certificates saved to $DOKKU_CERT_DIR${NC}"
 
 # =============================================================================
 # Set up auto-renewal
@@ -345,7 +309,15 @@ cat > "$SCRIPT_DIR/renew-certs.sh" << 'RENEWSCRIPT'
 #!/bin/bash
 # Certificate renewal script for homelab
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve symlinks to find actual script location
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+    SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ "$SOURCE" != /* ]] && SOURCE="$SCRIPT_DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
 CERT_DIR="$HOME/.homelab/certs"
 DOKKU_CERT_DIR="$SCRIPT_DIR/dokku/certs"
 
@@ -360,15 +332,20 @@ source "$SCRIPT_DIR/config.sh"
 DOMAIN="homelab.${APP_DOMAIN}"
 CERT_PATH="$CERT_DIR/live/${DOMAIN}"
 
-# Copy renewed certs to Dokku
+# Copy renewed certs
 if [[ -f "$CERT_PATH/fullchain.pem" ]]; then
     cp "$CERT_PATH/fullchain.pem" "$DOKKU_CERT_DIR/server.crt"
     cp "$CERT_PATH/privkey.pem" "$DOKKU_CERT_DIR/server.key"
 
-    # Reload nginx in Dokku
-    docker exec dokku bash -c 'cp /certs/server.crt /mnt/dokku/home/dokku/.ssl/server.crt'
-    docker exec dokku bash -c 'cp /certs/server.key /mnt/dokku/home/dokku/.ssl/server.key'
-    docker exec dokku nginx:reload-config 2>/dev/null || true
+    # Update certs for all apps
+    cd "$DOKKU_CERT_DIR"
+    APPS=$(docker exec dokku dokku apps:list 2>/dev/null | tail -n +2)
+    for app in $APPS; do
+        if [[ -n "$app" ]]; then
+            echo "Updating cert for $app..."
+            tar cf - server.crt server.key | docker exec -i dokku dokku certs:update "$app" 2>&1 || true
+        fi
+    done
 fi
 RENEWSCRIPT
 chmod +x "$SCRIPT_DIR/renew-certs.sh"
@@ -416,12 +393,12 @@ echo -e "${CYAN}==> Enabling HTTPS for existing apps...${NC}"
 # Get list of apps
 APPS=$(docker exec dokku dokku apps:list 2>/dev/null | tail -n +2)
 
+cd "$DOKKU_CERT_DIR"
 for app in $APPS; do
     if [[ -n "$app" ]]; then
         echo "Enabling HTTPS for $app..."
-        # Dokku will use the global cert automatically
-        # Just need to ensure the app's nginx config is regenerated
-        docker exec dokku dokku proxy:build-config "$app" 2>/dev/null || true
+        # Add cert to each app (Dokku requires per-app certs)
+        tar cf - server.crt server.key | docker exec -i dokku dokku certs:add "$app" 2>&1 | grep -v "^a " || true
     fi
 done
 

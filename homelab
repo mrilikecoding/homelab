@@ -6,7 +6,15 @@ set -e
 
 DOKKU_HOST="dokku"  # SSH config alias
 DOKKU_DOMAIN="${DOKKU_DOMAIN:-nate.green}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Resolve symlinks to find the actual script location
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+    SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ "$SOURCE" != /* ]] && SOURCE="$SCRIPT_DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
 # Colors
 RED='\033[0;31m'
@@ -57,6 +65,14 @@ case "${1:-help}" in
         echo -e "${CYAN}Creating app '$APP'...${NC}"
         ssh "$DOKKU_HOST" apps:create "$APP"
         ssh "$DOKKU_HOST" domains:set "$APP" "${APP}.homelab.${DOKKU_DOMAIN}"
+
+        # Auto-enable HTTPS if certs are available
+        CERT_DIR="$SCRIPT_DIR/dokku/certs"
+        if [[ -f "$CERT_DIR/server.crt" ]]; then
+            echo -e "${CYAN}Enabling HTTPS...${NC}"
+            cd "$CERT_DIR"
+            tar cf - server.crt server.key | docker exec -i dokku dokku certs:add "$APP" 2>&1 | grep -v "^a " || true
+        fi
 
         # Add git remote if in a git repo
         if git rev-parse --git-dir >/dev/null 2>&1; then
@@ -303,6 +319,23 @@ case "${1:-help}" in
         "$SCRIPT_DIR/renew-certs.sh"
         ;;
 
+    https:enable)
+        # Enable HTTPS for a specific app
+        shift
+        APP=$(require_app "$1")
+        CERT_DIR="$SCRIPT_DIR/dokku/certs"
+
+        if [[ ! -f "$CERT_DIR/server.crt" ]]; then
+            echo -e "${RED}Error: No certificates found. Run 'homelab https:setup' first${NC}"
+            exit 1
+        fi
+
+        echo -e "${CYAN}Enabling HTTPS for '$APP'...${NC}"
+        cd "$CERT_DIR"
+        tar cf - server.crt server.key | docker exec -i dokku dokku certs:add "$APP" 2>&1 | grep -v "^a " || true
+        echo -e "${GREEN}HTTPS enabled for $APP${NC}"
+        ;;
+
     # =========================================================================
     # Public Access Commands (Cloudflare Tunnel)
     # =========================================================================
@@ -458,6 +491,7 @@ ${GREEN}Configuration:${NC}
 ${GREEN}HTTPS:${NC}
   https:setup             Set up HTTPS with Let's Encrypt
   https:status            Show certificate status
+  https:enable [app]      Enable HTTPS for an app
   https:renew             Manually renew certificates
 
 ${GREEN}Public Access:${NC}
