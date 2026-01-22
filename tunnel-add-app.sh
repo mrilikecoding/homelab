@@ -58,7 +58,7 @@ if [[ -f "$CREDENTIALS_DIR/porkbun.ini" ]]; then
 
     if [[ -n "$API_KEY" && -n "$API_SECRET" ]]; then
         # Create CNAME record via Porkbun API
-        RESPONSE=$(curl -s -X POST "https://porkbun.com/api/json/v3/dns/create/$DOMAIN" \
+        RESPONSE=$(curl -s -X POST "https://api.porkbun.com/api/json/v3/dns/create/$DOMAIN" \
             -H "Content-Type: application/json" \
             -d "{
                 \"apikey\": \"$API_KEY\",
