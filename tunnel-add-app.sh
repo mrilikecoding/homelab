@@ -32,6 +32,10 @@ fi
 # Add to public apps
 echo "${APP}:${HOSTNAME}" >> "$PUBLIC_APPS_FILE"
 
+# Add public hostname to Dokku so it accepts requests for this domain
+echo "Adding $HOSTNAME to Dokku app..."
+docker exec dokku dokku domains:add "$APP" "$HOSTNAME" 2>/dev/null || true
+
 # Regenerate tunnel config
 "$SCRIPT_DIR/tunnel-regenerate-config.sh"
 

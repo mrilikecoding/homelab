@@ -28,8 +28,6 @@ if [[ -s "$PUBLIC_APPS_FILE" ]]; then
             cat >> "$CONFIG_FILE" << APPENTRY
   - hostname: $hostname
     service: http://localhost:80
-    originRequest:
-      httpHostHeader: ${app}.homelab.${APP_DOMAIN}
 APPENTRY
         fi
     done < "$PUBLIC_APPS_FILE"
