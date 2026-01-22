@@ -7,7 +7,6 @@ source "$SCRIPT_DIR/config.sh"
 PUBLIC_APPS_FILE="$SCRIPT_DIR/.public-apps"
 TUNNEL_DIR="$HOME/.cloudflared"
 CONFIG_FILE="$TUNNEL_DIR/config.yml"
-CREDENTIALS_DIR="$HOME/.homelab/credentials"
 
 APP="$1"
 HOSTNAME="${2:-$APP.$APP_DOMAIN}"
@@ -33,66 +32,26 @@ fi
 # Add to public apps
 echo "${APP}:${HOSTNAME}" >> "$PUBLIC_APPS_FILE"
 
-# Regenerate config
+# Regenerate tunnel config
 "$SCRIPT_DIR/tunnel-regenerate-config.sh"
 
-# Get tunnel ID
-TUNNEL_ID=$(cloudflared tunnel list 2>/dev/null | grep homelab | awk '{print $1}')
-if [[ -z "$TUNNEL_ID" ]]; then
-    echo "Error: Could not find tunnel ID"
-    exit 1
-fi
-
-# Extract subdomain and domain from hostname
-# e.g., "hello-world.nate.green" -> subdomain="hello-world", domain="nate.green"
-SUBDOMAIN="${HOSTNAME%%.*}"
-DOMAIN="${HOSTNAME#*.}"
-
-# Try to add DNS record via Porkbun API
+# Add DNS record via Cloudflare (cloudflared handles this automatically when domain is on Cloudflare)
 echo "Adding DNS record for $HOSTNAME..."
 
-if [[ -f "$CREDENTIALS_DIR/porkbun.ini" ]]; then
-    # Read Porkbun credentials
-    API_KEY=$(grep "dns_porkbun_key" "$CREDENTIALS_DIR/porkbun.ini" | cut -d'=' -f2 | tr -d ' ')
-    API_SECRET=$(grep "dns_porkbun_secret" "$CREDENTIALS_DIR/porkbun.ini" | cut -d'=' -f2 | tr -d ' ')
-
-    if [[ -n "$API_KEY" && -n "$API_SECRET" ]]; then
-        # Create CNAME record via Porkbun API
-        RESPONSE=$(curl -s -X POST "https://api.porkbun.com/api/json/v3/dns/create/$DOMAIN" \
-            -H "Content-Type: application/json" \
-            -d "{
-                \"apikey\": \"$API_KEY\",
-                \"secretapikey\": \"$API_SECRET\",
-                \"name\": \"$SUBDOMAIN\",
-                \"type\": \"CNAME\",
-                \"content\": \"${TUNNEL_ID}.cfargotunnel.com\",
-                \"ttl\": 600
-            }")
-
-        if echo "$RESPONSE" | grep -q '"status":"SUCCESS"'; then
-            echo "✓ DNS record created: $HOSTNAME -> ${TUNNEL_ID}.cfargotunnel.com"
-        elif echo "$RESPONSE" | grep -q "already exists"; then
-            echo "✓ DNS record already exists for $HOSTNAME"
-        else
-            echo "⚠ Could not create DNS record automatically."
-            echo "  API response: $RESPONSE"
-            echo ""
-            echo "  Please add manually in Porkbun:"
-            echo "  Type: CNAME"
-            echo "  Host: $SUBDOMAIN"
-            echo "  Answer: ${TUNNEL_ID}.cfargotunnel.com"
-        fi
-    else
-        echo "⚠ Porkbun credentials incomplete. Add DNS record manually:"
-        echo "  Type: CNAME"
-        echo "  Host: $SUBDOMAIN"
-        echo "  Answer: ${TUNNEL_ID}.cfargotunnel.com"
-    fi
+if cloudflared tunnel route dns homelab "$HOSTNAME" 2>&1; then
+    echo "✓ DNS record created via Cloudflare"
 else
-    echo "⚠ No Porkbun credentials found. Add DNS record manually:"
+    echo "⚠ Could not create DNS record automatically."
+    echo ""
+    echo "  If your domain is on Cloudflare DNS, check that:"
+    echo "  1. The domain is 'Active' in Cloudflare dashboard"
+    echo "  2. You're authenticated: cloudflared tunnel login"
+    echo ""
+    echo "  If your domain is NOT on Cloudflare, add manually:"
+    TUNNEL_ID=$(cloudflared tunnel list 2>/dev/null | grep homelab | awk '{print $1}')
     echo "  Type: CNAME"
-    echo "  Host: $SUBDOMAIN"
-    echo "  Answer: ${TUNNEL_ID}.cfargotunnel.com"
+    echo "  Host: ${HOSTNAME%%.*}"
+    echo "  Target: ${TUNNEL_ID}.cfargotunnel.com"
 fi
 
 echo ""

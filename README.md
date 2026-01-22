@@ -339,6 +339,15 @@ CERTBOT_DNS_PLUGIN="porkbun"  # or cloudflare, route53, etc.
 
 By default, apps are only accessible via Tailscale. To make specific apps publicly accessible while keeping everything else private, use Cloudflare Tunnel.
 
+### Prerequisites
+
+**Your domain must use Cloudflare DNS** (free plan is fine). If your domain is registered elsewhere (e.g., Porkbun, Namecheap), you can keep the registrar but point the nameservers to Cloudflare:
+
+1. Add your domain at https://dash.cloudflare.com
+2. Cloudflare will import your existing DNS records
+3. Update nameservers at your registrar to Cloudflare's
+4. Wait for "Active" status in Cloudflare
+
 ### Quick Start
 
 ```bash
