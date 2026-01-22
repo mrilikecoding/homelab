@@ -27,7 +27,9 @@ if [[ -s "$PUBLIC_APPS_FILE" ]]; then
         if [[ -n "$app" && -n "$hostname" ]]; then
             cat >> "$CONFIG_FILE" << APPENTRY
   - hostname: $hostname
-    service: http://localhost:80
+    service: https://localhost:443
+    originRequest:
+      noTLSVerify: true
 APPENTRY
         fi
     done < "$PUBLIC_APPS_FILE"
