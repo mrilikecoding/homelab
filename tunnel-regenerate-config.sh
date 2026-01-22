@@ -7,8 +7,14 @@ source "$SCRIPT_DIR/config.sh"
 PUBLIC_APPS_FILE="$SCRIPT_DIR/.public-apps"
 TUNNEL_DIR="$HOME/.cloudflared"
 CONFIG_FILE="$TUNNEL_DIR/config.yml"
-TUNNEL_ID="b737c8e7-b80d-4150-ba5a-59c990b9995c"
-CREDENTIALS_FILE="/Users/nathanielgreen/.cloudflared/b737c8e7-b80d-4150-ba5a-59c990b9995c.json"
+
+# Get tunnel ID dynamically
+TUNNEL_ID=$(cloudflared tunnel list 2>/dev/null | grep homelab | awk '{print $1}')
+if [[ -z "$TUNNEL_ID" ]]; then
+    echo "Error: Could not find homelab tunnel. Run 'homelab tunnel:setup' first."
+    exit 1
+fi
+CREDENTIALS_FILE="$TUNNEL_DIR/${TUNNEL_ID}.json"
 
 cat > "$CONFIG_FILE" << CONFIGHEADER
 # Cloudflare Tunnel configuration for homelab

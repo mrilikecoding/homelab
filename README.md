@@ -339,67 +339,123 @@ CERTBOT_DNS_PLUGIN="porkbun"  # or cloudflare, route53, etc.
 
 By default, apps are only accessible via Tailscale. To make specific apps publicly accessible while keeping everything else private, use Cloudflare Tunnel.
 
-### Prerequisites
-
-**Your domain must use Cloudflare DNS** (free plan is fine). If your domain is registered elsewhere (e.g., Porkbun, Namecheap), you can keep the registrar but point the nameservers to Cloudflare:
-
-1. Add your domain at https://dash.cloudflare.com
-2. Cloudflare will import your existing DNS records
-3. Update nameservers at your registrar to Cloudflare's
-4. Wait for "Active" status in Cloudflare
-
-### Quick Start
-
-```bash
-# One-time setup (requires Cloudflare account with your domain)
-homelab tunnel:setup
-
-# Make an app public
-homelab public myapp                    # → https://myapp.yourdomain.com
-homelab public myapp api.yourdomain.com # → custom hostname
-
-# Make it private again
-homelab private myapp
-
-# List public apps
-homelab public:list
-```
-
 ### How It Works
 
 ```
 Internet                              Your Tailnet (Private)
 ────────                              ──────────────────────
-myapp.nate.green ──► Cloudflare ──► Tunnel ──► Dokku ──► myapp
-                         │
-                         ✗ Cannot reach *.homelab.nate.green
+myapp.yourdomain.com ──► Cloudflare ──► Tunnel ──► Dokku ──► myapp
+                              │
+                              ✗ Cannot reach *.homelab.yourdomain.com
 ```
 
-- Only apps you explicitly make public are accessible
+- Only apps you explicitly make public are accessible from the internet
 - `*.homelab.YOURDOMAIN` stays completely private (Tailnet-only)
-- Cloudflare handles HTTPS for the public hostname
-- You can use any hostname on your domain
+- Cloudflare provides HTTPS, DDoS protection, and caching for public apps
+- No ports opened on your network — the tunnel connects outbound
+
+### Prerequisites: Cloudflare DNS Setup
+
+**Your domain must use Cloudflare DNS** (free plan is fine). You can keep your current registrar (Porkbun, Namecheap, etc.) — only DNS moves to Cloudflare.
+
+#### Step 1: Create Cloudflare Account
+1. Sign up at https://dash.cloudflare.com (free)
+
+#### Step 2: Add Your Domain
+1. Click **"Add a site"** in Cloudflare dashboard
+2. Enter your domain (e.g., `yourdomain.com`)
+3. Select the **Free** plan
+4. Cloudflare will scan and import your existing DNS records
+
+#### Step 3: Verify DNS Records
+**Important:** Before changing nameservers, verify Cloudflare imported all your records, especially:
+- **MX records** (email)
+- **TXT records** (SPF, DKIM, DMARC for email)
+- Any other records you have
+
+Add any missing records in Cloudflare before proceeding.
+
+#### Step 4: Update Nameservers
+1. Cloudflare will show you two nameservers (e.g., `ada.ns.cloudflare.com`, `bob.ns.cloudflare.com`)
+2. Go to your registrar (Porkbun, Namecheap, etc.)
+3. Replace the existing nameservers with Cloudflare's
+4. Save changes
+
+#### Step 5: Wait for Activation
+- Cloudflare will show "Pending" until nameservers propagate
+- Usually takes a few minutes, can take up to 24 hours
+- Once status shows **"Active"**, you're ready
+
+### Tunnel Setup (One-Time)
+
+On your homelab server:
+
+```bash
+homelab tunnel:setup
+```
+
+This will:
+1. Install `cloudflared` if needed
+2. Open a browser to authenticate with Cloudflare
+3. Create a tunnel named "homelab"
+4. Configure the tunnel as a system service
+
+### Making Apps Public
+
+```bash
+# Make an app public (creates DNS record automatically)
+homelab public myapp                    # → https://myapp.yourdomain.com
+homelab public myapp api.yourdomain.com # → custom hostname
+
+# Apply changes
+homelab tunnel:restart
+
+# Make it private again
+homelab private myapp
+homelab tunnel:restart
+
+# List all public apps
+homelab public:list
+```
+
+### URL Structure
+
+| Type | URL | Access |
+|------|-----|--------|
+| Private | `https://myapp.homelab.yourdomain.com` | Tailnet only |
+| Public | `https://myapp.yourdomain.com` | Internet |
 
 ### Tunnel Commands
 
 ```bash
 homelab tunnel:setup    # Initial Cloudflare Tunnel setup
 homelab tunnel:status   # Show tunnel status and public apps
-homelab tunnel:restart  # Restart the tunnel
+homelab tunnel:restart  # Restart the tunnel (required after public/private changes)
 homelab tunnel:logs     # View tunnel logs
 homelab tunnel:logs -f  # Follow tunnel logs
 ```
 
-### Alternative: Tailscale Funnel
+### Circuit Breaker (Auto-Protection)
 
-For quick, temporary sharing without Cloudflare:
+Protect your homelab from being overwhelmed by traffic spikes:
 
 ```bash
-# On your server
+homelab cb:enable       # Enable monitoring (checks every 60s)
+homelab cb:status       # Show current load and thresholds
+homelab cb:disable      # Disable monitoring
+```
+
+If CPU or load exceeds thresholds for 3 consecutive checks, all public apps are automatically disabled. See `config.sh` to adjust thresholds.
+
+### Alternative: Tailscale Funnel
+
+For quick, temporary sharing without Cloudflare setup:
+
+```bash
 tailscale funnel --bg 443
 ```
 
-This exposes your entire port 443 via `your-machine.tailnet-name.ts.net`. Less control, but simpler for one-off sharing.
+This exposes port 443 via `your-machine.tailnet-name.ts.net`. Less control than Cloudflare Tunnel, but simpler for one-off sharing.
 
 ---
 
