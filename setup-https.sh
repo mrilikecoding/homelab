@@ -67,14 +67,14 @@ else
     read -p "Select your DNS provider [1-7]: " DNS_CHOICE
 
     case "$DNS_CHOICE" in
-        1) DNS_PLUGIN="porkbun" ;;
-        2) DNS_PLUGIN="cloudflare" ;;
-        3) DNS_PLUGIN="route53" ;;
-        4) DNS_PLUGIN="google" ;;
-        5) DNS_PLUGIN="digitalocean" ;;
-        6) DNS_PLUGIN="namecheap" ;;
-        7) DNS_PLUGIN="manual" ;;
-        *) echo -e "${RED}Invalid choice${NC}"; exit 1 ;;
+        1|porkbun) DNS_PLUGIN="porkbun" ;;
+        2|cloudflare) DNS_PLUGIN="cloudflare" ;;
+        3|route53) DNS_PLUGIN="route53" ;;
+        4|google) DNS_PLUGIN="google" ;;
+        5|digitalocean) DNS_PLUGIN="digitalocean" ;;
+        6|namecheap) DNS_PLUGIN="namecheap" ;;
+        7|manual) DNS_PLUGIN="manual" ;;
+        *) echo -e "${RED}Invalid choice: '$DNS_CHOICE'. Enter 1-7 or provider name.${NC}"; exit 1 ;;
     esac
 
     echo "$DNS_PLUGIN" > "$CREDENTIALS_DIR/dns-provider"
