@@ -193,6 +193,77 @@ case "${1:-help}" in
         ssh "$DOKKU_HOST" config:unset "$APP" "$@"
         ;;
 
+    # =========================================================================
+    # Build Configuration (for static sites that need build-time env vars)
+    # =========================================================================
+    build-args)
+        # List build args for an app
+        shift
+        APP=$(require_app "$1")
+        echo -e "${CYAN}Build args for '$APP':${NC}"
+        ssh "$DOKKU_HOST" docker-options:report "$APP" | grep -E "build|Build" || echo "  (none)"
+        ;;
+
+    build-args:set)
+        # Add build arg (pulls from config var)
+        shift
+        APP="${1:?Error: app name required}"
+        shift
+        [[ $# -eq 0 ]] && { echo "Usage: homelab build-args:set <app> KEY [KEY ...]"; exit 1; }
+
+        echo -e "${CYAN}Adding build args for '$APP'...${NC}"
+        for KEY in "$@"; do
+            # Strip =value if provided (we just need the key name)
+            KEY="${KEY%%=*}"
+            ssh "$DOKKU_HOST" docker-options:add "$APP" build "--build-arg $KEY"
+            echo -e "  ${GREEN}✓${NC} $KEY"
+        done
+        echo ""
+        echo -e "${YELLOW}Note:${NC} Make sure config var is set: homelab config:set $APP $KEY=value"
+        echo "Then rebuild: homelab rebuild $APP"
+        ;;
+
+    build-args:unset)
+        # Remove build arg
+        shift
+        APP="${1:?Error: app name required}"
+        shift
+        [[ $# -eq 0 ]] && { echo "Usage: homelab build-args:unset <app> KEY [KEY ...]"; exit 1; }
+
+        echo -e "${CYAN}Removing build args for '$APP'...${NC}"
+        for KEY in "$@"; do
+            ssh "$DOKKU_HOST" docker-options:remove "$APP" build "--build-arg $KEY" 2>/dev/null || true
+            echo -e "  ${GREEN}✓${NC} $KEY removed"
+        done
+        ;;
+
+    rebuild)
+        # Force rebuild an app
+        shift
+        NO_CACHE=false
+        APP=""
+
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --no-cache) NO_CACHE=true; shift ;;
+                *) APP="$1"; shift ;;
+            esac
+        done
+
+        APP=$(require_app "$APP")
+
+        if [[ "$NO_CACHE" == true ]]; then
+            echo -e "${CYAN}Rebuilding '$APP' (busting cache)...${NC}"
+            # Clear build cache then rebuild
+            ssh "$DOKKU_HOST" repo:purge-cache "$APP" 2>/dev/null || true
+            ssh "$DOKKU_HOST" ps:rebuild "$APP"
+        else
+            echo -e "${CYAN}Rebuilding '$APP'...${NC}"
+            ssh "$DOKKU_HOST" ps:rebuild "$APP"
+        fi
+        echo -e "${GREEN}Rebuild complete!${NC}"
+        ;;
+
     run)
         # Run one-off command
         shift
@@ -557,6 +628,13 @@ ${GREEN}Configuration:${NC}
   config:unset <name> K   Unset config vars
   domains [name]          Show domains
 
+${GREEN}Build Args (for static sites):${NC}
+  build-args [name]       List build args
+  build-args:set <name> K Add build arg (injects config var at build time)
+  build-args:unset <name> K  Remove build arg
+  rebuild [name]          Force rebuild
+  rebuild [name] --no-cache  Rebuild and bust Docker cache
+
 ${GREEN}HTTPS (server only):${NC}
   https:setup             Set up HTTPS with Let's Encrypt
   https:status            Show certificate status
@@ -593,6 +671,11 @@ ${GREEN}Examples:${NC}
   homelab logs myapp -t          # Tail logs
   homelab config:set myapp DEBUG=true
   homelab run myapp bash         # Interactive shell in container
+
+${GREEN}Static Site Build Args:${NC}
+  homelab config:set myapp PUBLIC_API_URL=https://api.example.com
+  homelab build-args:set myapp PUBLIC_API_URL
+  homelab rebuild myapp          # Rebuilds with env var baked in
 
 ${GREEN}HTTPS & Public Access Examples:${NC}
   homelab https:setup            # Set up wildcard cert (interactive)
