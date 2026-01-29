@@ -65,3 +65,12 @@ CIRCUIT_BREAKER_CHECKS=3
 
 # Optional: Webhook URL for notifications (Slack, Discord, etc.)
 # CIRCUIT_BREAKER_WEBHOOK="https://hooks.slack.com/services/xxx"
+
+# =============================================================================
+# Cloudflare R2 settings (for backups and object storage)
+# =============================================================================
+R2_ACCOUNT_ID=""
+R2_ACCESS_KEY_ID=""
+R2_SECRET_ACCESS_KEY=""
+R2_BACKUP_BUCKET="nextcloud-backup"
+R2_REGION="auto"

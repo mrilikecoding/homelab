@@ -569,6 +569,85 @@ PLIST
         ;;
 
     # =========================================================================
+    # Database Commands
+    # =========================================================================
+    db:create)
+        # Create and link a Dokku postgres database
+        shift
+        APP="${1:?Error: app name required}"
+        SERVICE="${2:-${APP}-db}"
+
+        echo -e "${CYAN}Creating postgres service '$SERVICE'...${NC}"
+        ssh "$DOKKU_HOST" postgres:create "$SERVICE"
+
+        echo -e "${CYAN}Linking '$SERVICE' to app '$APP'...${NC}"
+        ssh "$DOKKU_HOST" postgres:link "$SERVICE" "$APP"
+
+        echo -e "${GREEN}Database '$SERVICE' created and linked to '$APP'${NC}"
+        echo -e "View info: ${CYAN}homelab db:info $SERVICE${NC}"
+        ;;
+
+    db:info)
+        # Show database info
+        shift
+        SERVICE="${1:?Error: service name required}"
+        ssh "$DOKKU_HOST" postgres:info "$SERVICE"
+        ;;
+
+    db:backup)
+        # Run a manual database backup to R2
+        shift
+        SERVICE="${1:-nextcloud-db}"
+        echo -e "${CYAN}Backing up '$SERVICE' to R2...${NC}"
+        "$SCRIPT_DIR/nextcloud-backup.sh" "$SERVICE"
+        ;;
+
+    db:backup:schedule)
+        # Schedule daily database backups via launchd
+        shift
+        SERVICE="${1:-nextcloud-db}"
+        echo -e "${CYAN}Scheduling daily backup for '$SERVICE' at 3:00 AM...${NC}"
+
+        sudo tee /Library/LaunchDaemons/com.homelab.db-backup.plist > /dev/null << PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.homelab.db-backup</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${SCRIPT_DIR}/nextcloud-backup.sh</string>
+        <string>${SERVICE}</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/tmp/homelab-db-backup.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/homelab-db-backup.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>${HOME}</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
+PLIST
+
+        sudo launchctl unload /Library/LaunchDaemons/com.homelab.db-backup.plist 2>/dev/null || true
+        sudo launchctl load /Library/LaunchDaemons/com.homelab.db-backup.plist
+        echo -e "${GREEN}Daily backup scheduled for '$SERVICE' at 3:00 AM${NC}"
+        ;;
+
+    # =========================================================================
     # Update Command
     # =========================================================================
     update)
@@ -657,6 +736,12 @@ ${GREEN}Circuit Breaker (server only):${NC}
   cb:restore              Re-enable apps disabled by circuit breaker
   cb:logs                 View circuit breaker logs
   cb:test                 Test the circuit breaker (will trip!)
+
+${GREEN}Database (server only):${NC}
+  db:create <app> [service]  Create and link a postgres database
+  db:info <service>          Show database info
+  db:backup [service]        Run a manual backup to R2
+  db:backup:schedule [svc]   Schedule daily backups at 3 AM
 
 ${GREEN}Utilities:${NC}
   url [name]              Show app URL
