@@ -692,15 +692,14 @@ PLIST
         # Update the homelab CLI
         echo -e "${CYAN}Updating homelab CLI...${NC}"
 
-        # Detect if we're running on the server or a standalone client install
-        if is_server; then
-            # Running on the server
+        if [[ -d "$SCRIPT_DIR/.git" ]]; then
+            # Cloned repo (server or client)
             echo "Pulling latest changes..."
             cd "$SCRIPT_DIR"
             git pull
             echo -e "${GREEN}Updated from git repository${NC}"
         else
-            # Standalone install (client)
+            # Standalone install (downloaded script only)
             echo "Downloading latest version..."
             INSTALL_PATH="${BASH_SOURCE[0]}"
             curl -fsSL -o "$INSTALL_PATH.tmp" https://raw.githubusercontent.com/mrilikecoding/homelab/main/homelab
