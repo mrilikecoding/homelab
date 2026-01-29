@@ -352,6 +352,9 @@ sudo launchctl load /Library/LaunchDaemons/com.homelab.startup.plist
 echo "==> Configuring power management for headless operation..."
 sudo pmset -a sleep 0 disksleep 0 displaysleep 0 autorestart 1
 
+# Mark this machine as a server
+touch "$SCRIPT_DIR/.homelab-server"
+
 # =============================================================================
 # Done!
 # =============================================================================

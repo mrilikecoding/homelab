@@ -42,6 +42,21 @@ require_app() {
     echo "$app"
 }
 
+# Check if running on the server (marker file created by install.sh)
+is_server() {
+    [[ -f "$SCRIPT_DIR/.homelab-server" ]]
+}
+
+# Warn and confirm if a server-only command is run on a client
+require_server() {
+    if ! is_server; then
+        echo -e "${YELLOW}Warning: '$COMMAND' is a server-only command${NC}" >&2
+        echo "This command should be run on the homelab server, not a client machine." >&2
+        read -p "Continue anyway? [y/N] " CONFIRM
+        [[ "$CONFIRM" =~ ^[yY]$ ]] || exit 1
+    fi
+}
+
 # Print app URL (https if certs are set up)
 app_url() {
     local app="$1"
@@ -52,7 +67,9 @@ app_url() {
     fi
 }
 
-case "${1:-help}" in
+COMMAND="${1:-help}"
+
+case "$COMMAND" in
     apps|list)
         # List all apps
         echo -e "${CYAN}Apps on homelab:${NC}"
@@ -364,11 +381,13 @@ case "${1:-help}" in
     # =========================================================================
     https:setup)
         # Set up HTTPS with Let's Encrypt
+        require_server
         "$SCRIPT_DIR/setup-https.sh"
         ;;
 
     https:status)
         # Show HTTPS status
+        require_server
         echo -e "${CYAN}HTTPS Status${NC}"
         echo ""
         if [[ -f "$SCRIPT_DIR/dokku/certs/server.crt" ]]; then
@@ -387,11 +406,13 @@ case "${1:-help}" in
 
     https:renew)
         # Manually renew certificates
+        require_server
         "$SCRIPT_DIR/renew-certs.sh"
         ;;
 
     https:enable)
         # Enable HTTPS for a specific app
+        require_server
         shift
         APP=$(require_app "$1")
         CERT_DIR="$SCRIPT_DIR/dokku/certs"
@@ -412,11 +433,13 @@ case "${1:-help}" in
     # =========================================================================
     tunnel:setup)
         # Set up Cloudflare Tunnel
+        require_server
         "$SCRIPT_DIR/setup-tunnel.sh"
         ;;
 
     public)
         # Make an app public
+        require_server
         shift
         APP="${1:?Error: app name required}"
         HOSTNAME="${2:-$APP.$DOKKU_DOMAIN}"
@@ -442,6 +465,7 @@ case "${1:-help}" in
 
     private)
         # Make an app private (remove from public)
+        require_server
         shift
         APP="${1:?Error: app name required}"
 
@@ -453,11 +477,13 @@ case "${1:-help}" in
 
     public:list)
         # List public apps
+        require_server
         "$SCRIPT_DIR/tunnel-list-apps.sh"
         ;;
 
     tunnel:status)
         # Show tunnel status
+        require_server
         echo -e "${CYAN}Cloudflare Tunnel Status${NC}"
         echo ""
         if [[ -f "$HOME/.cloudflared/config.yml" ]]; then
@@ -483,6 +509,7 @@ case "${1:-help}" in
 
     tunnel:restart)
         # Restart the tunnel
+        require_server
         echo -e "${CYAN}Restarting Cloudflare Tunnel...${NC}"
         sudo launchctl kickstart -k system/com.homelab.tunnel 2>/dev/null || {
             sudo launchctl load /Library/LaunchDaemons/com.homelab.tunnel.plist
@@ -492,6 +519,7 @@ case "${1:-help}" in
 
     tunnel:logs)
         # View tunnel logs
+        require_server
         if [[ "$2" == "-f" || "$2" == "--follow" ]]; then
             tail -f /tmp/homelab-tunnel.log
         else
@@ -504,26 +532,31 @@ case "${1:-help}" in
     # =========================================================================
     circuit-breaker:status|cb:status)
         # Show circuit breaker status
+        require_server
         "$SCRIPT_DIR/circuit-breaker.sh" status
         ;;
 
     circuit-breaker:restore|cb:restore)
         # Restore apps disabled by circuit breaker
+        require_server
         "$SCRIPT_DIR/circuit-breaker.sh" restore
         ;;
 
     circuit-breaker:logs|cb:logs)
         # View circuit breaker logs
+        require_server
         "$SCRIPT_DIR/circuit-breaker.sh" logs
         ;;
 
     circuit-breaker:test|cb:test)
         # Test the circuit breaker (will trip immediately)
+        require_server
         "$SCRIPT_DIR/circuit-breaker.sh" test
         ;;
 
     circuit-breaker:enable|cb:enable)
         # Enable the circuit breaker daemon
+        require_server
         echo -e "${CYAN}Enabling circuit breaker...${NC}"
 
         # Create launchd plist
@@ -563,6 +596,7 @@ PLIST
 
     circuit-breaker:disable|cb:disable)
         # Disable the circuit breaker daemon
+        require_server
         echo -e "${YELLOW}Disabling circuit breaker...${NC}"
         sudo launchctl unload /Library/LaunchDaemons/com.homelab.circuitbreaker.plist 2>/dev/null || true
         echo -e "${GREEN}Circuit breaker disabled${NC}"
@@ -573,6 +607,7 @@ PLIST
     # =========================================================================
     db:create)
         # Create and link a Dokku postgres database
+        require_server
         shift
         APP="${1:?Error: app name required}"
         SERVICE="${2:-${APP}-db}"
@@ -589,6 +624,7 @@ PLIST
 
     db:info)
         # Show database info
+        require_server
         shift
         SERVICE="${1:?Error: service name required}"
         ssh "$DOKKU_HOST" postgres:info "$SERVICE"
@@ -596,6 +632,7 @@ PLIST
 
     db:backup)
         # Run a manual database backup to R2
+        require_server
         shift
         SERVICE="${1:-nextcloud-db}"
         echo -e "${CYAN}Backing up '$SERVICE' to R2...${NC}"
@@ -604,6 +641,7 @@ PLIST
 
     db:backup:schedule)
         # Schedule daily database backups via launchd
+        require_server
         shift
         SERVICE="${1:-nextcloud-db}"
         echo -e "${CYAN}Scheduling daily backup for '$SERVICE' at 3:00 AM...${NC}"
@@ -654,9 +692,9 @@ PLIST
         # Update the homelab CLI
         echo -e "${CYAN}Updating homelab CLI...${NC}"
 
-        # Detect if we're running from a git repo or standalone install
-        if [[ -d "$SCRIPT_DIR/.git" ]]; then
-            # Running from git repo (server)
+        # Detect if we're running on the server or a standalone client install
+        if is_server; then
+            # Running on the server
             echo "Pulling latest changes..."
             cd "$SCRIPT_DIR"
             git pull
@@ -675,6 +713,156 @@ PLIST
                 echo -e "${RED}Update failed - could not download${NC}"
                 exit 1
             fi
+        fi
+        ;;
+
+    client:reset)
+        # Remove server-specific artifacts from this machine
+        echo -e "${CYAN}Homelab Client Reset${NC}"
+        echo ""
+        echo "This will remove server-specific config from this machine."
+        echo ""
+
+        # Collect artifacts that exist
+        ARTIFACTS=()
+
+        # LaunchDaemons
+        PLISTS=(/Library/LaunchDaemons/com.homelab.*.plist)
+        if [[ -e "${PLISTS[0]}" ]]; then
+            for plist in "${PLISTS[@]}"; do
+                ARTIFACTS+=("LaunchDaemon: $plist")
+            done
+        fi
+
+        # Startup script
+        if [[ -f /usr/local/bin/homelab-startup.sh ]]; then
+            ARTIFACTS+=("Startup script: /usr/local/bin/homelab-startup.sh")
+        fi
+
+        # Config file
+        if [[ -f "$SCRIPT_DIR/config.sh" ]]; then
+            ARTIFACTS+=("Config file: $SCRIPT_DIR/config.sh")
+        fi
+
+        # Env file
+        if [[ -f "$SCRIPT_DIR/.env" ]]; then
+            ARTIFACTS+=("Env file: $SCRIPT_DIR/.env")
+        fi
+
+        # Public apps list
+        if [[ -f "$SCRIPT_DIR/.public-apps" ]]; then
+            ARTIFACTS+=("Public apps list: $SCRIPT_DIR/.public-apps")
+        fi
+
+        # Certs
+        if [[ -f "$SCRIPT_DIR/dokku/certs/server.crt" ]] || [[ -f "$SCRIPT_DIR/dokku/certs/server.key" ]]; then
+            ARTIFACTS+=("Certs: $SCRIPT_DIR/dokku/certs/server.{crt,key}")
+        fi
+
+        # Homelab config dir
+        if [[ -d "$HOME/.homelab" ]]; then
+            ARTIFACTS+=("Homelab config dir: ~/.homelab/")
+        fi
+
+        # Cloudflared config
+        if [[ -d "$HOME/.cloudflared" ]]; then
+            ARTIFACTS+=("Cloudflared config: ~/.cloudflared/")
+        fi
+
+        # Server marker
+        if [[ -f "$SCRIPT_DIR/.homelab-server" ]]; then
+            ARTIFACTS+=("Server marker: $SCRIPT_DIR/.homelab-server")
+        fi
+
+        if [[ ${#ARTIFACTS[@]} -eq 0 ]]; then
+            echo -e "${GREEN}No server artifacts found — this machine is already a clean client.${NC}"
+            exit 0
+        fi
+
+        echo -e "${YELLOW}The following will be removed:${NC}"
+        for item in "${ARTIFACTS[@]}"; do
+            echo "  - $item"
+        done
+        echo ""
+
+        read -p "Proceed? [y/N] " CONFIRM
+        [[ "$CONFIRM" =~ ^[yY]$ ]] || { echo -e "${YELLOW}Aborted${NC}"; exit 1; }
+
+        echo ""
+
+        # Remove LaunchDaemons
+        if [[ -e "${PLISTS[0]}" ]]; then
+            for plist in "${PLISTS[@]}"; do
+                label=$(basename "$plist" .plist)
+                echo "Unloading $label..."
+                sudo launchctl unload "$plist" 2>/dev/null || true
+                sudo rm -f "$plist"
+            done
+        fi
+
+        # Remove startup script
+        if [[ -f /usr/local/bin/homelab-startup.sh ]]; then
+            echo "Removing startup script..."
+            sudo rm -f /usr/local/bin/homelab-startup.sh
+        fi
+
+        # Remove config file
+        if [[ -f "$SCRIPT_DIR/config.sh" ]]; then
+            echo "Removing config.sh..."
+            rm -f "$SCRIPT_DIR/config.sh"
+        fi
+
+        # Remove env file
+        if [[ -f "$SCRIPT_DIR/.env" ]]; then
+            echo "Removing .env..."
+            rm -f "$SCRIPT_DIR/.env"
+        fi
+
+        # Remove public apps list
+        if [[ -f "$SCRIPT_DIR/.public-apps" ]]; then
+            echo "Removing .public-apps..."
+            rm -f "$SCRIPT_DIR/.public-apps"
+        fi
+
+        # Remove certs
+        rm -f "$SCRIPT_DIR/dokku/certs/server.crt" "$SCRIPT_DIR/dokku/certs/server.key" 2>/dev/null
+
+        # Remove homelab config dir
+        if [[ -d "$HOME/.homelab" ]]; then
+            echo "Removing ~/.homelab/..."
+            rm -rf "$HOME/.homelab"
+        fi
+
+        # Remove cloudflared config
+        if [[ -d "$HOME/.cloudflared" ]]; then
+            echo "Removing ~/.cloudflared/..."
+            rm -rf "$HOME/.cloudflared"
+        fi
+
+        # Remove server marker
+        if [[ -f "$SCRIPT_DIR/.homelab-server" ]]; then
+            echo "Removing server marker..."
+            rm -f "$SCRIPT_DIR/.homelab-server"
+        fi
+
+        echo ""
+        echo -e "${GREEN}Client reset complete.${NC}"
+
+        # Hint about manual steps if Docker/Colima are present
+        MANUAL_STEPS=false
+        if command -v colima &>/dev/null && colima status 2>/dev/null | grep -q "Running"; then
+            MANUAL_STEPS=true
+        fi
+        if command -v docker &>/dev/null && docker ps -q 2>/dev/null | grep -q .; then
+            MANUAL_STEPS=true
+        fi
+
+        if [[ "$MANUAL_STEPS" == true ]]; then
+            echo ""
+            echo -e "${YELLOW}Note:${NC} Docker containers and Colima were left untouched."
+            echo "To fully clean up, you may also want to:"
+            echo "  - Stop Docker containers: docker stop \$(docker ps -q)"
+            echo "  - Delete the Colima VM:   colima delete"
         fi
         ;;
 
@@ -748,6 +936,7 @@ ${GREEN}Utilities:${NC}
   ssh                     Interactive dokku shell
   dokku <cmd>             Pass-through to dokku
   update                  Update the homelab CLI
+  client:reset            Remove server config from this machine
 
 ${GREEN}Examples:${NC}
   homelab create myapp           # Create app, add git remote

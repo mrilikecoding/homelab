@@ -2,6 +2,8 @@ config.sh
 .env
 .DS_Store
 
+.homelab-server
+
 # Generated during install
 dokku/
 pihole-proxy/
