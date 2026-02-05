@@ -457,6 +457,14 @@ case "$COMMAND" in
 
         "$SCRIPT_DIR/tunnel-add-app.sh" "$APP" "$HOSTNAME"
 
+        # Enable HTTPS if certs are available
+        CERT_DIR="$SCRIPT_DIR/dokku/certs"
+        if [[ -f "$CERT_DIR/server.crt" ]]; then
+            echo -e "${CYAN}Enabling HTTPS for '$APP'...${NC}"
+            cd "$CERT_DIR"
+            tar cf - server.crt server.key | docker exec -i dokku dokku certs:add "$APP" 2>&1 | grep -v "^a " || true
+        fi
+
         # Restart tunnel
         sudo launchctl kickstart -k system/com.homelab.tunnel 2>/dev/null || {
             sudo launchctl load /Library/LaunchDaemons/com.homelab.tunnel.plist 2>/dev/null || true
