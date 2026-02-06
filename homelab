@@ -476,8 +476,9 @@ case "$COMMAND" in
         require_server
         shift
         APP="${1:?Error: app name required}"
+        HOSTNAME="${2:-}"
 
-        "$SCRIPT_DIR/tunnel-remove-app.sh" "$APP"
+        "$SCRIPT_DIR/tunnel-remove-app.sh" "$APP" $HOSTNAME
 
         # Restart tunnel if it's running
         sudo launchctl kickstart -k system/com.homelab.tunnel 2>/dev/null || true

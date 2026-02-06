@@ -23,9 +23,9 @@ if ! docker exec dokku dokku apps:exists "$APP" 2>/dev/null; then
     exit 1
 fi
 
-# Check if already public
-if grep -q "^${APP}:" "$PUBLIC_APPS_FILE" 2>/dev/null; then
-    echo "App '$APP' is already public"
+# Check if this exact app:hostname pair already exists
+if grep -q "^${APP}:${HOSTNAME}$" "$PUBLIC_APPS_FILE" 2>/dev/null; then
+    echo "App '$APP' is already public at $HOSTNAME"
     exit 0
 fi
 
@@ -39,23 +39,39 @@ docker exec dokku dokku domains:add "$APP" "$HOSTNAME" 2>/dev/null || true
 # Regenerate tunnel config
 "$SCRIPT_DIR/tunnel-regenerate-config.sh"
 
-# Add DNS record via Cloudflare (cloudflared handles this automatically when domain is on Cloudflare)
-echo "Adding DNS record for $HOSTNAME..."
+# Add DNS record via Cloudflare
+TUNNEL_ID=$(cloudflared tunnel list 2>/dev/null | grep homelab | awk '{print $1}')
 
-if cloudflared tunnel route dns homelab "$HOSTNAME" 2>&1; then
-    echo "✓ DNS record created via Cloudflare"
+if [[ "$HOSTNAME" == *".${APP_DOMAIN}" || "$HOSTNAME" == "$APP_DOMAIN" ]]; then
+    # Hostname is under the cloudflared-authorized zone — auto-create DNS
+    echo "Adding DNS record for $HOSTNAME..."
+    if cloudflared tunnel route dns homelab "$HOSTNAME" 2>&1; then
+        echo "✓ DNS record created via Cloudflare"
+    else
+        echo "⚠ Could not create DNS record automatically."
+        echo ""
+        echo "  Add manually in Cloudflare DNS for $APP_DOMAIN:"
+        echo "  Type: CNAME"
+        echo "  Name: ${HOSTNAME%%.$APP_DOMAIN}"
+        echo "  Target: ${TUNNEL_ID}.cfargotunnel.com"
+        echo "  Proxy: Enabled (orange cloud)"
+    fi
 else
-    echo "⚠ Could not create DNS record automatically."
+    # Hostname is on a different zone — cloudflared cert.pem can't manage it
     echo ""
-    echo "  If your domain is on Cloudflare DNS, check that:"
-    echo "  1. The domain is 'Active' in Cloudflare dashboard"
-    echo "  2. You're authenticated: cloudflared tunnel login"
-    echo ""
-    echo "  If your domain is NOT on Cloudflare, add manually:"
-    TUNNEL_ID=$(cloudflared tunnel list 2>/dev/null | grep homelab | awk '{print $1}')
+    echo "⚠ $HOSTNAME is not under $APP_DOMAIN — add DNS record manually:"
+    echo "  Zone: $HOSTNAME"
     echo "  Type: CNAME"
-    echo "  Host: ${HOSTNAME%%.*}"
+    if [[ "$HOSTNAME" == *.* && "$(echo "$HOSTNAME" | tr '.' '\n' | wc -l)" -gt 2 ]]; then
+        # Subdomain (e.g., trellis.nrgforge.com) — name is the subdomain part
+        ZONE="${HOSTNAME#*.}"
+        echo "  Name: ${HOSTNAME%%.$ZONE}"
+    else
+        # Apex domain (e.g., nrgforge.com) — name is @
+        echo "  Name: @ (root)"
+    fi
     echo "  Target: ${TUNNEL_ID}.cfargotunnel.com"
+    echo "  Proxy: Enabled (orange cloud)"
 fi
 
 echo ""
