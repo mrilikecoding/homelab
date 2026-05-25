@@ -612,6 +612,14 @@ PLIST
         ;;
 
     # =========================================================================
+    # Health Check
+    # =========================================================================
+    doctor)
+        shift
+        "$SCRIPT_DIR/doctor.sh" "$@"
+        ;;
+
+    # =========================================================================
     # Database Commands
     # =========================================================================
     db:create)
@@ -932,6 +940,10 @@ ${GREEN}Circuit Breaker (server only):${NC}
   cb:restore              Re-enable apps disabled by circuit breaker
   cb:logs                 View circuit breaker logs
   cb:test                 Test the circuit breaker (will trip!)
+
+${GREEN}Health Check:${NC}
+  doctor                  Run health checks (auto-detects server/client)
+  doctor --fix            Run checks and attempt to fix issues
 
 ${GREEN}Database (server only):${NC}
   db:create <app> [service]  Create and link a postgres database
