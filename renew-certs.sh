@@ -21,8 +21,13 @@ if [[ -f "$CERT_PATH/fullchain.pem" ]]; then
     cp "$CERT_PATH/fullchain.pem" "$DOKKU_CERT_DIR/server.crt"
     cp "$CERT_PATH/privkey.pem" "$DOKKU_CERT_DIR/server.key"
 
-    # Reload nginx in Dokku
-    docker exec dokku bash -c 'cp /certs/server.crt /mnt/dokku/home/dokku/.ssl/server.crt'
-    docker exec dokku bash -c 'cp /certs/server.key /mnt/dokku/home/dokku/.ssl/server.key'
-    docker exec dokku nginx:reload-config 2>/dev/null || true
+    # Update certs for all apps
+    cd "$DOKKU_CERT_DIR"
+    APPS=$(docker exec dokku dokku apps:list 2>/dev/null | tail -n +2)
+    for app in $APPS; do
+        if [[ -n "$app" ]]; then
+            echo "Updating cert for $app..."
+            tar cf - server.crt server.key | docker exec -i dokku dokku certs:update "$app" 2>&1 || true
+        fi
+    done
 fi
