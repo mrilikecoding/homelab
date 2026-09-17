@@ -21,6 +21,9 @@ function fakeState(initial = {}) {
     put: vi.fn(async (key, value) => {
       map.set(key, value);
     }),
+    delete: vi.fn(async (key) => {
+      map.delete(key);
+    }),
   };
 }
 
@@ -115,7 +118,7 @@ describe("scheduled", () => {
     return fetchMock.mock.calls.filter(([url]) => url === `https://ntfy.sh/${NTFY_TOPIC}`);
   }
 
-  it("posts exactly one ntfy call when state goes from ok to down", async () => {
+  it("a single red tick after ok is held as pending, not pushed", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === STATUS_URL) {
         return jsonResponse(freshBody({ ok: false, checks: { dns: false } }));
@@ -124,6 +127,55 @@ describe("scheduled", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const state = fakeState({ last: "ok" });
+    const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
+
+    await worker.scheduled({}, env);
+
+    expect(ntfyCalls(fetchMock)).toHaveLength(0);
+    expect(state.put).toHaveBeenCalledWith("pending", "red:dns");
+    expect(state.put).not.toHaveBeenCalledWith("last", expect.anything());
+  });
+
+  it("a red tick that clears on the next tick pushes nothing and drops the pending mark", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === STATUS_URL) return jsonResponse(freshBody());
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const state = fakeState({ last: "ok", pending: "red:dns" });
+    const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
+
+    await worker.scheduled({}, env);
+
+    expect(ntfyCalls(fetchMock)).toHaveLength(0);
+    expect(state.delete).toHaveBeenCalledWith("pending");
+  });
+
+  it("unreachable after ok pushes immediately, no grace", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === STATUS_URL) throw new Error("boom");
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const state = fakeState({ last: "ok" });
+    const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
+
+    await worker.scheduled({}, env);
+
+    expect(ntfyCalls(fetchMock)).toHaveLength(1);
+    expect(ntfyCalls(fetchMock)[0][1].headers.Title).toBe("homelab DOWN");
+    expect(state.put).toHaveBeenCalledWith("last", "unreachable");
+  });
+
+  it("posts exactly one ntfy call when a red tick repeats (second consecutive red after ok)", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === STATUS_URL) {
+        return jsonResponse(freshBody({ ok: false, checks: { dns: false } }));
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const state = fakeState({ last: "ok", pending: "red:dns" });
     const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
 
     await worker.scheduled({}, env);
@@ -148,7 +200,7 @@ describe("scheduled", () => {
       return { ok: false, status: 500, json: async () => ({}) };
     });
     vi.stubGlobal("fetch", fetchMock);
-    const state = fakeState({ last: "ok" });
+    const state = fakeState({ last: "ok", pending: "red:dns" });
     const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
 
     await worker.scheduled({}, env);
@@ -165,7 +217,7 @@ describe("scheduled", () => {
       throw new Error("network down");
     });
     vi.stubGlobal("fetch", fetchMock);
-    const state = fakeState({ last: "ok" });
+    const state = fakeState({ last: "ok", pending: "red:dns" });
     const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
 
     await worker.scheduled({}, env);

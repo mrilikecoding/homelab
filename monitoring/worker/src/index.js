@@ -34,7 +34,25 @@ export default {
       verdict = { ok: false, cls: "unreachable", why: `unreachable: ${e.message}` };
     }
     const last = (await env.STATE.get("last")) || "ok";
-    if (verdict.cls === last) return;
+    if (verdict.cls === last) {
+      if (verdict.ok) await env.STATE.delete("pending");
+      return;
+    }
+
+    // Grace for a fresh-but-red status while the mini is healthy: the
+    // reconciler's first pass after a Colima start publishes ok:false for
+    // one tick (pihole in its healthcheck window, Dokku recycling apps).
+    // A red must repeat on the next tick before it pages. Stale,
+    // unreachable, and non-JSON verdicts mean the mini is gone and page at
+    // once.
+    if (last === "ok" && verdict.cls.startsWith("red:")) {
+      const pending = await env.STATE.get("pending");
+      if (pending !== verdict.cls) {
+        await env.STATE.put("pending", verdict.cls);
+        return;
+      }
+    }
+    if (verdict.ok) await env.STATE.delete("pending");
 
     const wasOk = last === "ok";
     let title;

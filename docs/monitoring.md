@@ -57,6 +57,13 @@ This is still edge-triggered: one push when things break, one for each new
 kind of break, one when things fully recover, nothing in between even if the
 mini stays down for days.
 
+A fresh-but-red status gets one tick of grace: the first red after ok is
+held as `pending` in KV and not pushed; a red on the next tick (five
+minutes later) pushes DOWN. This covers the reconciler's first pass after
+a Colima start, which publishes `ok: false` once while pihole is in its
+healthcheck window and Dokku recycles the apps. Stale, unreachable and
+non-JSON verdicts have no grace: they mean the mini is gone.
+
 ## Practitioner steps (not done by this change)
 
 These two steps are dashboard/CLI actions outside the Worker's code and are
