@@ -56,7 +56,7 @@ From a tailnet device that is not the mini:
 
 ---
 
-### WP1: boot reconciler on the mini
+### Task 1: WP1, boot reconciler on the mini
 
 **Owner:** implementer (edits the repo); applying on the mini is a deploy step.
 
@@ -180,7 +180,7 @@ exit 1
 
 ---
 
-### WP2: pihole reports the truth
+### Task 2: WP2, pihole reports the truth
 
 **Owner:** implementer; the container re-create is a deploy step (30 s of DNS downtime).
 
@@ -217,7 +217,7 @@ exit 1
 
 ---
 
-### WP3: dnsmasq collision fixed at the source (spike first)
+### Task 3: WP3, dnsmasq collision fixed at the source (spike first)
 
 **Owner:** implementer, after a 15-minute spike. **Gate:** the spike result.
 
@@ -241,7 +241,7 @@ pihole binds only `col0` (`192.168.64.2`), which is all the forwarder needs.
 
 ---
 
-### WP4: free alerting on Cloudflare: tunnel health notification + a Cron Worker
+### Task 4: WP4, free alerting on Cloudflare: tunnel health notification + a Cron Worker
 
 **Owner:** an agent for the Worker and its tests; the practitioner for the two
 Cloudflare dashboard steps (notification, public hostname) and for choosing the
@@ -347,7 +347,7 @@ STATUS_URL = "https://status.<zone>/status.json"
 
 ---
 
-### WP5 (optional, llm-orc repo): readiness in `/health`
+### Task 5: WP5 (optional, llm-orc repo), readiness in `/health`
 
 `GET /health` on the serve is liveness only (`{"status":"healthy","version":...}`
 with no router and no model). WP1's `serve` probe covers readiness via `/api/models`.
@@ -357,13 +357,13 @@ to answer. Not needed for this plan.
 
 ---
 
-### WP6: (removed)
+### Task 6: WP6, (removed)
 
 The generated status page stays: it is the transport for `status.json`.
 
 ---
 
-### WP7: the plug-pull
+### Task 7: WP7, the plug-pull
 
 **Owner:** practitioner, after WP1, WP2, WP4 are live (WP3 optional).
 
