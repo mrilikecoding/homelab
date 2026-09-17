@@ -83,6 +83,7 @@ try_fix() {
 # =============================================================================
 run_server_checks() {
     TOTAL=10
+    local PIHOLE_RESTARTED=false
 
     # --- Check 1: Colima VM has routable IP ---
     echo -n "[1/${TOTAL}] Colima VM has routable IP ..."
@@ -219,6 +220,7 @@ PLIST"; then
             colima ssh -- sudo pkill dnsmasq; then
             sleep 1
             docker restart pihole 2>/dev/null || true
+            PIHOLE_RESTARTED=true
             sleep 3
             local recheck
             recheck=$(colima ssh -- ss -ulnp 2>/dev/null | grep ':53 ' | grep dnsmasq || true)
@@ -284,21 +286,15 @@ PLIST"; then
     echo -n "[8/${TOTAL}] Pi-hole healthy ..."
     local pihole_health
     pihole_health=$(docker inspect --format '{{.State.Health.Status}}' pihole 2>/dev/null)
-    if [[ "$pihole_health" == "healthy" ]]; then
-        check_pass
+    if [[ "$pihole_health" == "healthy" || "$pihole_health" == "starting" ]]; then
+        check_pass "$pihole_health"
     else
         check_fail "${pihole_health:-no healthcheck}"
-        if try_fix "killing dnsmasq in VM and restarting Pi-hole" \
+        if [[ "$PIHOLE_RESTARTED" == "true" ]]; then
+            echo "      → skipped repair: check 5 just restarted pi-hole"
+        elif try_fix "killing dnsmasq in VM and restarting Pi-hole" \
             bash -c 'colima ssh -- sudo pkill dnsmasq; docker restart pihole'; then
-            sleep 5
-            local recheck
-            recheck=$(docker inspect --format '{{.State.Health.Status}}' pihole 2>/dev/null)
-            if [[ "$recheck" == "healthy" ]]; then
-                echo -n "      → Re-checking ..."
-                check_fixed
-            else
-                check_fail "still ${recheck:-no healthcheck}"
-            fi
+            echo "      → restart triggered; confirmed next run"
         fi
     fi
 
