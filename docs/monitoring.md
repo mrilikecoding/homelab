@@ -15,43 +15,73 @@ launchd) writes `status/html/status.json` with the shape:
 ```
 
 The Worker (`monitoring/worker/src/index.js`) runs on a Cron Trigger every 5
-minutes, fetches that JSON over the public tunnel, and decides one of:
+minutes, fetches that JSON over the public tunnel (`cache: "no-store"`), and
+classifies the result as one of:
 
-- **unreachable** — the fetch itself failed or timed out (10s)
-- **stale** — `generated` is more than 15 minutes old, missing, or
-  unparseable (the mini stopped publishing, or clocks disagree)
-- **red** — `ok` is not `true`; the message names every check in `checks`
-  whose value is not `true` (generic over whatever keys the reconciler adds)
-- **ok** — fresh and green
+- `unreachable` — the fetch itself failed or timed out (10s)
+- `http` — the response wasn't 2xx
+- `nojson` — the body isn't valid JSON
+- `stale` — `generated` is missing, unparseable, more than 15 minutes old, or
+  more than a minute in the future (clock skew between the mini and the
+  Worker)
+- `red:<keys>` — `ok` is not `true`; the class and the alert message both
+  name every check in `checks` whose value is not `true` (generic over
+  whatever keys the reconciler adds), sorted for the class
+- `ok` — fresh and green
+
+A `doctor.sh --fix` run whose repairs all held now exits 0 (`check_fixed`
+decrements the failure count), so `"doctor": true` even on a run that had to
+fix something. A self-heal that succeeds no longer trips a false "homelab
+DOWN" push.
 
 ## State machine
 
-The Worker only cares about two states, `ok` and `down` (unreachable, stale,
-and red all collapse to `down`). The last state is stored in KV
-(`STATE["last"]`) so a push only fires on a transition:
+The Worker tracks the *class* from above, not a plain ok/down boolean. The
+last class is stored in KV (`STATE["last"]`) so a push only fires when the
+class changes:
 
 ```
-ok -> down   : push "homelab DOWN: <reason>", priority high
-down -> down : no push (already alerted)
-down -> ok   : push "homelab recovered", priority default
-ok -> ok     : no push
+ok            -> non-ok        : push "homelab DOWN: <reason>", priority high
+non-ok        -> same non-ok   : no push (already alerted)
+non-ok        -> different non-ok : push "homelab still DOWN: <reason>", priority high
+non-ok        -> ok            : push "homelab recovered", priority default
+ok            -> ok            : no push
 ```
 
-This is edge-triggered by design: one push when things break, one when they
-recover, nothing in between even if the mini stays down for days.
+Tracking the class means a lingering, low-severity red (say, a cert warning)
+no longer hides a new failure: going from `red:cert` to `red:cert,dns` is a
+class change and pushes "still DOWN: red: cert, dns", where the old ok/down
+model would have stayed silent because both states were just "down".
+
+This is still edge-triggered: one push when things break, one for each new
+kind of break, one when things fully recover, nothing in between even if the
+mini stays down for days.
 
 ## Practitioner steps (not done by this change)
 
 These two steps are dashboard/CLI actions outside the Worker's code and are
 left for the practitioner to complete before the alert path is live.
 
-1. **Expose the status page through the tunnel.** Run
-   `homelab public status status.<your public zone>` (uses the existing
-   `tunnel-add-app.sh` tooling), then confirm from a non-tailnet network
-   that `https://status.<zone>/status.json` returns the JSON above. The
-   file carries only booleans and a timestamp, so no Access policy is
-   needed. If exposing the hostname is undesirable, use an unguessable path
-   instead. Once this is live, update `monitoring/worker/wrangler.toml`'s
+1. **Expose the status page through the tunnel.** First confirm the app name
+   Dokku knows it by: `ssh ng-mini 'docker exec dokku dokku apps:exists
+   status'` (`tunnel-add-app.sh` requires the app to already exist and fails
+   without it). Then run `homelab public status status.<your public zone>`
+   (the existing `tunnel-add-app.sh` tooling), and confirm from a
+   non-tailnet network that `https://status.<zone>/status.json` returns the
+   JSON above.
+
+   Making the `status` app public exposes its *whole* hostname, not only
+   `status.json`. `index.html` is the Dokku app inventory
+   (`status/generate-status.sh`, refreshed every 60 seconds) — every app
+   name and whether it's running or stopped. Pick one:
+
+   - A Cloudflare Access policy on the hostname, with a bypass rule for
+     `/status.json` so the Worker's unauthenticated fetch keeps working
+     while everything else requires a login.
+   - Serve the JSON at an unguessable path instead of putting a public
+     hostname on the `status` app at all.
+
+   Once this is live, update `monitoring/worker/wrangler.toml`'s
    `STATUS_URL` to match (it currently points at
    `https://status.homelab.nate.green/status.json` as a placeholder).
 
@@ -71,9 +101,15 @@ From `monitoring/worker/`, one time:
 npx wrangler login
 npx wrangler kv namespace create STATE
 # paste the returned id into wrangler.toml's kv_namespaces[0].id
-npx wrangler secret put NTFY_TOPIC
+openssl rand -hex 16
+npx wrangler secret put NTFY_TOPIC   # paste the hex string above as the topic
 npx wrangler deploy
 ```
+
+ntfy.sh topics are public unless reserved (a paid feature): anyone who
+learns the topic name can read the alerts and post fake ones to it. That's
+why the topic is generated randomly rather than a memorable word, and kept
+out of the repo — it lives only as this wrangler secret.
 
 Free-plan limits: Cron Triggers, 100k requests/day, KV 1k writes/day. This
 Worker uses roughly 300 requests/day (one status fetch every 5 minutes) and
@@ -81,18 +117,25 @@ at most a handful of KV writes a day (only on state transitions).
 
 ## Proving it works
 
-With the ntfy phone app subscribed to the topic:
+With the ntfy phone app subscribed to the topic, stop something the doctor
+cannot repair — the llm-orc serve isn't one of `doctor.sh`'s checks, so
+nothing brings it back until you do:
 
 ```bash
-ssh ng-mini docker stop pihole
+ssh ng-mini 'launchctl bootout gui/$(id -u)/com.llm-orc.serve'
 ```
 
-Within about 10 minutes (one reconciler run writes `"dns": false`, then one
-Worker tick reads it) a "homelab DOWN: red: dns" push should arrive. Then:
+Within about 10 minutes (one reconciler run writes `"serve": false`, then
+one Worker tick reads it) a "homelab DOWN: red: serve" push should arrive.
+Then:
 
 ```bash
-ssh ng-mini docker start pihole
+ssh ng-mini 'launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.llm-orc.serve.plist'
 ```
 
 A "homelab recovered" push should follow on the next tick. Record both
 push timestamps as the proof this alerting path actually fires.
+
+`docker stop pihole` is not a valid proof: doctor's check 7 restarts a
+stopped container inside the same `--fix` run, so the reconciler heals it
+before any Worker tick ever observes it down.
