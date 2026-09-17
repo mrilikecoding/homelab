@@ -216,12 +216,24 @@ exit 1
 - [ ] **Step 1: healthcheck on the container.** Add to the `docker run` in `install.sh`:
 
 ```
-  --health-cmd 'dig +time=2 +tries=1 @127.0.0.1 pi.hole >/dev/null || exit 1' \
+  --health-cmd 'dig +time=2 +tries=1 +short +norecurse @192.168.64.2 pi.hole | grep -qx 127.0.0.1 || exit 1' \
   --health-interval 30s --health-timeout 5s --health-retries 3 \
 ```
 
-  (The image's default check tests the web server, which is why the container
-  read "healthy" for 11 hours with DNS dead on 2026-09-16.)
+  Why this shape (verified 2026-09-17): the image's built-in check is
+  `dig +short +norecurse @127.0.0.1 pi.hole || exit 1`. When FTL loses port
+  53 to Lima's dnsmasq (which binds `127.0.0.1:53` and `192.168.5.1:53`
+  inside the VM), that dnsmasq answers the check's query instead, so the
+  container reads "healthy" with pihole's DNS dead; that is the 11-hour
+  green of 2026-09-16. Two things make the new check truthful: it asks
+  `192.168.64.2` (the `col0` address the socat forwarder uses; Lima's
+  dnsmasq never binds it, so only FTL can answer there), and it requires
+  the answer `127.0.0.1` (pihole's own record for `pi.hole`; an upstream
+  resolver would return something else or nothing). If `192.168.64.2` is
+  not stable, fall back to `@127.0.0.1` with the `127.0.0.1` answer
+  requirement, which still fails under the steal because dnsmasq resolves
+  `pi.hole` upstream, not to 127.0.0.1; prove whichever you ship with
+  Step 4.
 
 - [ ] **Step 2: doctor check "pihole healthy".** After check 7 in
   `run_server_checks`: read `docker inspect --format '{{.State.Health.Status}}' pihole`;
@@ -235,7 +247,15 @@ exit 1
   `docker inspect --format '{{.State.Health.Status}}' pihole` is `healthy` and the
   verification set passes.
 
-- [ ] **Step 4: show the guard going red.** `docker exec pihole pkill -STOP pihole-FTL`
+- [ ] **Step 4: show the guard going red, twice.** First the real failure:
+  `colima ssh -- sudo pkill dnsmasq` is the fix, so the failure is the
+  reverse: with pihole healthy, `docker restart pihole` right after a
+  `colima restart` reproduces the steal (or simply confirm from the FTL log
+  that the last CRIT `Address in use` occurred while the OLD check logged
+  exit 0); if reproducing is impractical, run the new health command by hand
+  inside the container while Lima's dnsmasq holds 127.0.0.1:53 and show it
+  exits 1 where the old one exits 0. Second, the generic failure:
+  `docker exec pihole pkill -STOP pihole-FTL`
   (or `kill -STOP $(pidof pihole-FTL)` if the image lacks pkill), wait 100 s, `docker inspect` must say `unhealthy`; `docker exec pihole pkill -CONT pihole-FTL`,
   wait, `healthy` again. Then `doctor.sh` (no `--fix`) with FTL stopped must FAIL
   the new check. Paste both in the PR. Commit: `feat: pihole healthcheck tests DNS, not the web server`.
