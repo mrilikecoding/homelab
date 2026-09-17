@@ -28,3 +28,11 @@ findings 7, 10, 12, 13 and the deferred items). None blocks the plug-pull.
   them.
 - Ollama is still installed on the mini (brew service on 11434); nothing
   uses it since llm-orc 0.20.0. Practitioner's call to remove.
+- The status page is two containers: the Dokku app `status` (a proxy) and
+  `homelab-status` (nginx on :5000 from `status/docker-compose.yml`, restart
+  policy `unless-stopped`). Docker does not restart an `unless-stopped`
+  container after the daemon itself stopped it, so `homelab-status` stays
+  down after every Colima stop and nothing checks it (found 2026-09-17: down
+  for an hour after test (c); the public hostname answered 502). Add it to
+  the reconciler's `apps` probe and to doctor check 7, or give it
+  `restart: always`, or fold it into the Dokku app.
