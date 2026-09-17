@@ -112,7 +112,7 @@ doctor_ok=false
 "$SCRIPT_DIR/doctor.sh" --fix && doctor_ok=true
 
 # 3. Publish what is true right now. WP4's Worker reads this through the tunnel.
-dns_ok=false;    dig +time=2 +tries=1 @100.92.166.102 pi.hole +short 2>/dev/null | grep -q . && dns_ok=true
+dns_ok=false;    dig +time=2 +tries=1 @100.92.166.102 pi.hole +short 2>/dev/null | grep -qE '^[0-9]+\.[0-9]+\.' && dns_ok=true   # dig prints its timeout banner to stdout; require an IP
 serve_ok=false;  curl -fsS -m 5 http://127.0.0.1:8765/api/models 2>/dev/null | grep -q '"models"' && serve_ok=true
 colima_ok=false; colima status >/dev/null 2>&1 && colima_ok=true
 ph=$(docker inspect --format '{{.State.Health.Status}}' pihole 2>/dev/null); pihole_ok=false; [[ "$ph" == "healthy" || -z "$ph" ]] && pihole_ok=true
