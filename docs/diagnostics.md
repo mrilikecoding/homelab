@@ -280,11 +280,19 @@ against each other and against a stale Lima disk lock after the
    everything else it already knows how to repair: dnsmasq holding
    port 53, socat's target IP, Pi-hole's listening mode, and stopped
    containers.
-3. Probes what's true right now (DNS through the socat forwarder,
-   the llm-orc serve API, Colima, Pi-hole's Docker health status) and
-   writes the result to `status/html/status.json`, served at
+3. Probes what's true right now and writes the result to
+   `status/html/status.json`, served at
    `https://status.homelab.nate.green/status.json`, whether or not
-   everything passed.
+   everything passed:
+
+   | Key | What it measures |
+   |-----|-------------------|
+   | `colima` | `colima status` succeeds |
+   | `doctor` | `doctor.sh --fix` exited 0 (all checks pass, or every failure self-healed) |
+   | `dns` | `dig @100.92.166.102 pi.hole` returns an IP, through the socat forwarder |
+   | `pihole_healthy` | the `pihole` container's Docker health status is `healthy` |
+   | `apps` | the `dokku` and `pihole` containers are both `Running` |
+   | `serve` | `curl 127.0.0.1:8765/api/models` returns JSON |
 
 The reconciler runs under launchd with no TTY, so any `doctor.sh` fix
 that needs `sudo` (rewriting the DNS plist, kickstarting the tunnel,
