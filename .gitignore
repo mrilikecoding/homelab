@@ -9,3 +9,6 @@ dokku/
 pihole-proxy/
 status-proxy/
 status/html/
+
+monitoring/worker/node_modules/
+monitoring/worker/.wrangler/
