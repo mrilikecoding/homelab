@@ -61,6 +61,7 @@ check_fail() {
 check_fixed() {
     echo -e " ${GREEN}✓${NC} (fixed)"
     FIXED=$((FIXED + 1))
+    FAILED=$((FAILED - 1))
 }
 
 try_fix() {
