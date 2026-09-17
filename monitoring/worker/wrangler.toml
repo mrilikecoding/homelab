@@ -1,0 +1,20 @@
+name = "homelab-monitor"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[observability]
+enabled = true
+
+[[kv_namespaces]]
+binding = "STATE"
+# Replace with the real id after running:
+#   wrangler kv namespace create STATE
+id = "<created by: wrangler kv namespace create STATE>"
+
+[vars]
+# Practitioner: swap for the public hostname once Step 1 (tunnel exposure) is done.
+STATUS_URL = "https://status.homelab.nate.green/status.json"
+# NTFY_TOPIC is a secret: wrangler secret put NTFY_TOPIC
