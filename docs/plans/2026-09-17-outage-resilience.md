@@ -9,18 +9,22 @@ health checks say the truth, and a phone gets a push within minutes when they do
 
 **Architecture:** one launchd reconciler on the mini (unlock Lima's disk, start
 Colima, run `doctor.sh --fix`, ping a heartbeat) replaces two racing autostart
-units; pihole gets a real DNS healthcheck and binds only the interface the socat
-forwarder talks to; Uptime Kuma plus ntfy on a small VPS joined to the tailnet
-watch DNS, the apps, the llm-orc serve, and the heartbeat.
+units and publishes a `status.json` of real probes; pihole gets a real DNS
+healthcheck and binds only the interface the socat forwarder talks to; a
+Cloudflare Cron Trigger Worker (free plan) reads that status through the tunnel
+and pushes to ntfy.sh when it is stale or red, and Cloudflare's tunnel health
+notification covers the mini being off entirely. No paid infrastructure.
 
 **Tech:** bash + launchd (mini), Docker healthcheck, Pi-hole v6 `pihole-FTL --config`,
-Uptime Kuma 2.x, ntfy, Tailscale. No new languages.
+Cloudflare Workers (Cron Triggers + KV, free plan), ntfy.sh. No paid services.
 
 **Spec:** the incident and its diagnosis are in the practitioner's llm-orc session
 memory (`reference-ng-mini-reboot-recovery`) and summarized in
 `docs/diagnostics.md` (WP1 adds the section). Decisions made 2026-09-17:
 pihole stays the tailnet-wide resolver by design; the mini stays the single
-point of entry; a UPS is optional because the mini auto-reboots.
+point of entry; a UPS is optional because the mini auto-reboots; no paid
+infrastructure for monitoring (no VPS); alerting rides Cloudflare's free plan
+and ntfy.sh, and a self-hosted ntfy on the mini is for non-outage notifications.
 
 ## Global constraints
 
@@ -32,10 +36,14 @@ point of entry; a UPS is optional because the mini auto-reboots.
   sends `100.92.166.102:53 -> 192.168.64.2:53`.
 - `doctor.sh` is the reconciler's brain; new checks go there, not in new scripts.
   It is idempotent and takes `--fix`.
-- Kuma and ntfy must run OFF the mini and ON the tailnet (the DNS check is a
-  query to `100.92.166.102`; a monitor that resolves names cannot see the failure).
+- The alerting path must not depend on the mini: it runs on Cloudflare's free
+  plan and posts to `ntfy.sh` (a self-hosted ntfy would die with the mini).
+  Nothing is paid; if a Cloudflare feature turns out not to be free, stop and say so.
+- The Worker cannot join the tailnet, so DNS truth is measured ON the mini
+  (a local query against pihole) and published; the Worker checks the
+  publication is fresh and green.
 - Nothing here changes pihole's role or the Tailscale DNS config.
-- Spend (VPS) and pushes to `mrilikecoding/homelab` need the practitioner's go.
+- Pushes to `mrilikecoding/homelab` need the practitioner's go.
 
 ## Verification set (used by WP1, WP4, WP7)
 
@@ -59,8 +67,19 @@ From a tailnet device that is not the mini:
 - Modify: `docs/diagnostics.md` (new section "After a reboot")
 - Remove from the mini (not from the repo): `~/Library/LaunchAgents/com.colima.start.plist`; `brew services stop colima`
 
-**Produces:** `reconcile.sh` exit 0 when the verification set passes locally;
-`HEARTBEAT_URL` (optional env in the plist) pinged on success (WP4 consumes).
+**Produces:** `reconcile.sh` exit 0 when the verification set passes locally,
+and `status/html/status.json` rewritten on EVERY run (pass or fail) with the
+shape WP4 consumes:
+
+```json
+{"generated": "2026-09-17T08:30:00-07:00", "ok": true,
+ "checks": {"colima": true, "dns": true, "pihole_healthy": true, "apps": true, "serve": true}}
+```
+
+`dns` is a local `dig +time=2 +tries=1 @127.0.0.1 pi.hole` on the mini (through
+the socat forwarder use `@100.92.166.102`), `serve` is `curl 127.0.0.1:8765/api/models`
+returning JSON, `apps` is doctor's container check, `pihole_healthy` is the
+Docker health status from WP2 (`true` until WP2 lands).
 
 - [ ] **Step 1: `reconcile.sh`**
 
@@ -89,14 +108,28 @@ for _ in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 2; done
 
 # 2. Everything else is doctor.sh's job (dnsmasq on :53, listening mode, certs,
 #    containers, DNS answering). --fix applies its known repairs.
-if "$SCRIPT_DIR/doctor.sh" --fix; then
-  log "doctor: all checks pass"
-  [[ -n "${HEARTBEAT_URL:-}" ]] && curl -fsS -m 10 "$HEARTBEAT_URL" >/dev/null && log "heartbeat sent"
-  exit 0
-fi
-log "doctor: checks failing"
+doctor_ok=false
+"$SCRIPT_DIR/doctor.sh" --fix && doctor_ok=true
+
+# 3. Publish what is true right now. WP4's Worker reads this through the tunnel.
+dns_ok=false;    dig +time=2 +tries=1 @100.92.166.102 pi.hole +short 2>/dev/null | grep -q . && dns_ok=true
+serve_ok=false;  curl -fsS -m 5 http://127.0.0.1:8765/api/models 2>/dev/null | grep -q '"models"' && serve_ok=true
+colima_ok=false; colima status >/dev/null 2>&1 && colima_ok=true
+ph=$(docker inspect --format '{{.State.Health.Status}}' pihole 2>/dev/null); pihole_ok=false; [[ "$ph" == "healthy" || -z "$ph" ]] && pihole_ok=true
+all_ok=false; [[ $doctor_ok == true && $dns_ok == true && $serve_ok == true && $colima_ok == true && $pihole_ok == true ]] && all_ok=true
+mkdir -p "$SCRIPT_DIR/status/html"
+printf '{"generated":"%s","ok":%s,"checks":{"colima":%s,"dns":%s,"pihole_healthy":%s,"apps":%s,"serve":%s}}\n' \
+  "$(date +%FT%T%z)" "$all_ok" "$colima_ok" "$dns_ok" "$pihole_ok" "$doctor_ok" "$serve_ok" \
+  > "$SCRIPT_DIR/status/html/status.json.tmp" && mv "$SCRIPT_DIR/status/html/status.json.tmp" "$SCRIPT_DIR/status/html/status.json"
+
+if [[ $all_ok == true ]]; then log "all checks pass"; exit 0; fi
+log "checks failing: doctor=$doctor_ok dns=$dns_ok serve=$serve_ok colima=$colima_ok pihole=$pihole_ok"
 exit 1
 ```
+
+  `status/html/` is what the `status` Dokku app serves (see
+  `status/generate-status.sh`), so `status.json` appears next to `index.html`
+  at `https://status.homelab.nate.green/status.json` with no other change.
 
 - [ ] **Step 2: `doctor.sh` check 1 learns the disk lock.** In `run_server_checks`,
   check 1 (line ~95) restarts Colima when the VM has no IP. Before the
@@ -117,7 +150,6 @@ exit 1
   </array>
   <key>EnvironmentVariables</key><dict>
     <key>PATH</key><string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-    <key>HEARTBEAT_URL</key><string></string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>StartInterval</key><integer>600</integer>
@@ -131,8 +163,10 @@ exit 1
   the test). (b) `colima stop`, run it: exit 0 and the verification set passes
   from the laptop. (c) `colima stop`, then recreate the failure:
   `ln -sfn ~/.colima/_lima/colima ~/.colima/_lima/_disks/colima/in_use_by`
-  (the exact stale lock from 2026-09-16), run it: exit 0. Record all three
-  outputs in the PR.
+  (the exact stale lock from 2026-09-16), run it: exit 0. (d) With everything
+  healthy, `docker stop pihole`, run it: exit 1 and `status.json` says
+  `"dns": false`; `docker start pihole`, run it: exit 0 and `"dns": true`.
+  Record all four outputs in the PR.
 
 - [ ] **Step 5: deploy.** `cp launchd/com.homelab.reconcile.plist ~/Library/LaunchAgents/`,
   `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.homelab.reconcile.plist`;
@@ -207,84 +241,125 @@ pihole binds only `col0` (`192.168.64.2`), which is all the forwarder needs.
 
 ---
 
-### WP4: Uptime Kuma + ntfy on a VPS, joined to the tailnet
+### WP4: free alerting on Cloudflare: tunnel health notification + a Cron Worker
 
-**Owner:** practitioner for the VPS and the Tailscale auth key (spend + admin);
-an agent for everything after ssh works. **Gate:** WP0 decisions below.
+**Owner:** an agent for the Worker and its tests; the practitioner for the two
+Cloudflare dashboard steps (notification, public hostname) and for choosing the
+ntfy topic. **Gate:** WP1 (the Worker reads WP1's `status.json`).
 
-**WP0 decisions (practitioner, before WP4 starts):**
-1. Where it runs: a small VPS (DigitalOcean/AWS CLIs are installed on the
-   laptop; ~$5/month, 1 GB is enough) or a Pi on the LAN. Either must join the tailnet.
-2. ntfy: self-hosted on the same box (private topics, recommended) or `ntfy.sh`.
-3. Kuma exposure: tailnet-only. `tailscale serve` on the VPS gives HTTPS at
-   `https://<vps>.corgi-woodpecker.ts.net` with no public port.
+**Files:**
+- Create: `monitoring/worker/src/index.js`, `monitoring/worker/wrangler.toml`,
+  `monitoring/worker/test/index.test.js` (vitest; `npm create cloudflare` gives the scaffold)
+- Modify: `docs/monitoring.md` (new; the two dashboard steps, the topic, the URLs)
 
-- [ ] **Step 1 (practitioner): VPS up, `tailscale up`, Docker installed, ssh key for the agent.**
-- [ ] **Step 2: compose.** `monitoring/docker-compose.yml` in this repo:
+**Produces:** a push on the `ntfy.sh` topic when the mini's status is
+unreachable, stale, or red; one push on recovery; nothing in between.
 
-```yaml
-services:
-  kuma:
-    image: louislam/uptime-kuma:2
-    restart: unless-stopped
-    volumes: [kuma-data:/app/data]
-    ports: ["127.0.0.1:3001:3001"]
-  ntfy:
-    image: binwiederhier/ntfy
-    restart: unless-stopped
-    command: serve
-    volumes: [ntfy-cache:/var/cache/ntfy]
-    ports: ["127.0.0.1:8090:80"]
-volumes: { kuma-data: {}, ntfy-cache: {} }
+- [ ] **Step 1 (practitioner): expose the status page through the tunnel.**
+  `homelab public status status.<your public zone>` (the existing tunnel
+  tooling; `tunnel-add-app.sh`). Confirm from a non-tailnet network that
+  `https://status.<zone>/status.json` returns WP1's JSON. It carries only
+  booleans and a timestamp; no Access policy needed. If you would rather not
+  expose the page, put it at an unguessable path instead.
+
+- [ ] **Step 2 (practitioner): tunnel health notification.** Cloudflare
+  dashboard, Notifications, add "Cloudflare Tunnel Health Alert" (verify it is
+  offered on the free plan; if not, skip: Step 4's staleness check covers the
+  mini being off, ~10 min later). Delivery: webhook to
+  `https://ntfy.sh/<topic>` (ntfy accepts a plain POST body as the message).
+
+- [ ] **Step 3: the Worker.** Cron every 5 minutes; KV namespace `STATE`
+  (free) holds the last verdict so alerts are edge-triggered.
+
+```js
+// monitoring/worker/src/index.js
+const STALE_MS = 15 * 60 * 1000;
+
+export async function evaluate(res, now) {
+  if (!res.ok) return { ok: false, why: `status.json ${res.status}` };
+  const body = await res.json();
+  const age = now - Date.parse(body.generated);
+  if (!(age < STALE_MS)) return { ok: false, why: `stale ${Math.round(age / 60000)} min` };
+  if (body.ok !== true) {
+    const red = Object.entries(body.checks || {}).filter(([, v]) => v !== true).map(([k]) => k);
+    return { ok: false, why: `red: ${red.join(", ") || "unknown"}` };
+  }
+  return { ok: true, why: "ok" };
+}
+
+export default {
+  async scheduled(_event, env) {
+    let verdict;
+    try {
+      const res = await fetch(env.STATUS_URL, { signal: AbortSignal.timeout(10000) });
+      verdict = await evaluate(res, Date.now());
+    } catch (e) {
+      verdict = { ok: false, why: `unreachable: ${e.message}` };
+    }
+    const last = (await env.STATE.get("last")) || "ok";
+    const nowState = verdict.ok ? "ok" : "down";
+    if (nowState !== last) {
+      const title = verdict.ok ? "homelab recovered" : "homelab DOWN";
+      await fetch(`https://ntfy.sh/${env.NTFY_TOPIC}`, {
+        method: "POST",
+        headers: { Title: title, Priority: verdict.ok ? "default" : "high", Tags: verdict.ok ? "white_check_mark" : "rotating_light" },
+        body: `${verdict.why} (${new Date().toISOString()})`,
+      });
+      await env.STATE.put("last", nowState);
+    }
+  },
+};
 ```
 
-  Then on the VPS: `tailscale serve --bg --https=443 http://127.0.0.1:3001` and
-  `tailscale serve --bg --https=8443 http://127.0.0.1:8090` (Kuma and ntfy over
-  the tailnet only). Record both URLs in `docs/monitoring.md`.
+```toml
+# monitoring/worker/wrangler.toml
+name = "homelab-monitor"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+[triggers]
+crons = ["*/5 * * * *"]
+[[kv_namespaces]]
+binding = "STATE"
+id = "<created by: wrangler kv namespace create STATE>"
+[vars]
+STATUS_URL = "https://status.<zone>/status.json"
+# NTFY_TOPIC is a secret: wrangler secret put NTFY_TOPIC
+```
 
-- [ ] **Step 3: monitors** (Kuma UI; this is configuration, document it in
-  `docs/monitoring.md` as a table and export Kuma's backup JSON into
-  `monitoring/kuma-backup.json` if 2.x still offers it):
+- [ ] **Step 4: tests first** (`test/index.test.js`, vitest, pure functions, no
+  network): `evaluate` returns not-ok for a non-200 response; not-ok with
+  `stale` for `generated` 16 minutes old; not-ok naming the red check for
+  `{"ok":false,"checks":{"dns":false,...}}`; ok for a fresh green body. Then
+  one test of `scheduled` with a fake `env` (`STATE` as a Map wrapper, `fetch`
+  stubbed) proving: down after ok posts exactly one ntfy call; down after down
+  posts none; ok after down posts the recovery. Run: `npx vitest run`.
 
-| name | type | target | expect | interval |
-| --- | --- | --- | --- | --- |
-| dns via mini | DNS | `llm-orc.homelab.nate.green` @ `100.92.166.102` A | `100.92.166.102` | 60 s |
-| status app | HTTP keyword | `https://status.homelab.nate.green/` | `Homelab Status` | 60 s |
-| trellis | HTTP | `https://trellis.homelab.nate.green/` | 200 | 60 s |
-| llm-orc serve | HTTP keyword | `https://llm-orc.homelab.nate.green/health` | `healthy` | 60 s |
-| llm-orc router | HTTP keyword | `https://llm-orc.homelab.nate.green/api/models` | `"models"` | 120 s |
-| mini reconciler | Push | (Kuma-generated URL) | heartbeat every 15 min, 20 min grace | |
+- [ ] **Step 5: deploy.** `npx wrangler login` (practitioner, one time),
+  `npx wrangler kv namespace create STATE` (paste the id), `npx wrangler secret put NTFY_TOPIC`,
+  `npx wrangler deploy`. Free-plan limits: Cron Triggers, 100k requests/day,
+  KV 1k writes/day; this uses ~300 requests and at most a handful of writes a day.
 
-  Retries 2 before alerting; one notification channel: ntfy topic `homelab`,
-  attached to every monitor, "send on down and on recovery".
-
-- [ ] **Step 4: wire the heartbeat.** Put the push URL from Kuma into
-  `HEARTBEAT_URL` in `~/Library/LaunchAgents/com.homelab.reconcile.plist` on the
-  mini, `launchctl bootout` + `bootstrap` (a `kickstart` keeps the old plist).
-  Confirm Kuma shows the push monitor up within 10 minutes.
-- [ ] **Step 5: phone.** Install the ntfy app, subscribe to the `homelab` topic
-  on the self-hosted server. Test: pause the "trellis" monitor's target
-  (`ssh ng-mini docker stop trellis.web.1`, then `docker start`) and confirm a
-  down and a recovery push arrive. Commit: `feat: uptime kuma + ntfy monitoring stack`.
+- [ ] **Step 6: prove it.** Phone: ntfy app subscribed to the topic. Then
+  `ssh ng-mini docker stop pihole`; within ~10 minutes (one reconcile run
+  writes `"dns": false`, one Worker tick reads it) a "homelab DOWN: red: dns"
+  push arrives; `docker start pihole`; a "recovered" push follows. Paste both
+  timestamps in the PR. Commit: `feat: cloudflare cron worker alerts to ntfy on stale or red status`.
 
 ---
 
 ### WP5 (optional, llm-orc repo): readiness in `/health`
 
 `GET /health` on the serve is liveness only (`{"status":"healthy","version":...}`
-with no router and no model). Kuma covers readiness via `/api/models` (WP4).
+with no router and no model). WP1's `serve` probe covers readiness via `/api/models`.
 If wanted anyway: file an llm-orc issue for a `ready` boolean plus `router`
 reachability in `/health`, TDD against the stub router, never loading a model
 to answer. Not needed for this plan.
 
 ---
 
-### WP6: retire the generated status page
+### WP6: (removed)
 
-After WP4's Kuma status page exists (Kuma: Status Pages, add the six monitors,
-tailnet URL): `launchctl bootout gui/$(id -u)/com.homelab.status-refresh`, remove
-the plist, and either delete the `status` Dokku app or keep it as a redirect.
-Practitioner's call; one commit either way.
+The generated status page stays: it is the transport for `status.json`.
 
 ---
 
@@ -293,11 +368,12 @@ Practitioner's call; one commit either way.
 **Owner:** practitioner, after WP1, WP2, WP4 are live (WP3 optional).
 
 - [ ] Note the time. Pull the mini's power. Plug it back in.
-- [ ] Expected: Kuma pushes "dns via mini DOWN" and the app monitors within
-  2 minutes; the mini reboots and auto-logs-in; `com.homelab.reconcile` runs at
-  load, unlocks the disk, starts Colima, doctor fixes dnsmasq/pihole; every
-  monitor recovers within about 6 minutes of power returning; the heartbeat
-  arrives; no human touched anything.
+- [ ] Expected: the tunnel health notification (if enabled) pushes within a
+  couple of minutes; otherwise the Worker's staleness check pushes "homelab
+  DOWN: unreachable" within ~10 minutes; the mini reboots and auto-logs-in;
+  `com.homelab.reconcile` runs at load, unlocks the disk, starts Colima, doctor
+  fixes dnsmasq/pihole, `status.json` goes green; the Worker pushes "recovered"
+  on its next tick; no human touched anything.
 - [ ] Record the actual timeline in `docs/diagnostics.md` under "After a reboot".
   Anything that needed a hand is a new WP, not a note.
 
@@ -306,13 +382,15 @@ Practitioner's call; one commit either way.
 WP1 and WP2 are independent and both Sonnet-class implementers (repo edits +
 tests on the mini over ssh; the deploy steps are applied by the lead or the
 practitioner). WP3 starts with its spike and can run in parallel. WP4 waits on
-WP0. WP7 last. Each WP is one PR to `mrilikecoding/homelab`; pushes are gated.
+WP1 (its `status.json`) and on the practitioner's two dashboard steps. WP7
+last. Each WP is one PR to `mrilikecoding/homelab`; pushes are gated.
 
 ## Stop points (do not plan past these)
 
 - WP3's spike decides whether the source fix ships or the reconciler's pkill is
   the permanent answer.
-- WP0 decides the VPS; the compose and monitor table are written to survive
-  either host choice.
-- Kuma 2.x's backup export may be gone; if so the monitor table in
-  `docs/monitoring.md` is the record and the step says so.
+- Whether "Cloudflare Tunnel Health Alert" is on the free plan: if not, the
+  Worker's staleness check is the only "mini is off" signal (about 10 minutes
+  slower) and the plan says so in `docs/monitoring.md`.
+- Whether the status page may be public: if not, an unguessable path, decided
+  by the practitioner at WP4 step 1.
