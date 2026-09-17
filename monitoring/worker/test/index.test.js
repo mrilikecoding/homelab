@@ -76,6 +76,20 @@ describe("evaluate", () => {
     expect(result.ok).toBe(false);
     expect(result.why).toBe("no timestamp in status.json");
   });
+
+  it("returns not-ok when a 200 response body is not valid JSON", async () => {
+    const res = {
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new SyntaxError("Unexpected token < in JSON");
+      },
+    };
+
+    const result = await evaluate(res, Date.now());
+
+    expect(result).toEqual({ ok: false, why: "status.json body not valid JSON" });
+  });
 });
 
 describe("scheduled", () => {
@@ -109,6 +123,40 @@ describe("scheduled", () => {
     expect(options.headers.Tags).toBe("rotating_light");
     expect(options.body).toMatch(/^red: dns \(/);
     expect(state.put).toHaveBeenCalledWith("last", "down");
+  });
+
+  it("does not persist state when the ntfy POST fails (ok to down)", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === STATUS_URL) {
+        return jsonResponse(freshBody({ ok: false, checks: { dns: false } }));
+      }
+      return { ok: false, status: 500, json: async () => ({}) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const state = fakeState({ last: "ok" });
+    const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
+
+    await worker.scheduled({}, env);
+
+    expect(ntfyCalls(fetchMock)).toHaveLength(1);
+    expect(state.put).not.toHaveBeenCalled();
+  });
+
+  it("does not persist state when the ntfy fetch throws (ok to down)", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === STATUS_URL) {
+        return jsonResponse(freshBody({ ok: false, checks: { dns: false } }));
+      }
+      throw new Error("network down");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const state = fakeState({ last: "ok" });
+    const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
+
+    await worker.scheduled({}, env);
+
+    expect(ntfyCalls(fetchMock)).toHaveLength(1);
+    expect(state.put).not.toHaveBeenCalled();
   });
 
   it("posts nothing when state stays down", async () => {
