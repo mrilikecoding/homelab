@@ -264,25 +264,16 @@ exit 1
 
 ### Task 3: WP3, dnsmasq collision fixed at the source (spike first)
 
-**Owner:** implementer, after a 15-minute spike. **Gate:** the spike result.
-
-Every Colima start leaves Lima's dnsmasq on `127.0.0.1:53` and `192.168.5.1:53`
-inside the VM; pihole (`listeningMode = ALL`) then fails to bind and runs with
-DNS dead. WP1's reconciler papers over it with `pkill dnsmasq`. The source fix:
-pihole binds only `col0` (`192.168.64.2`), which is all the forwarder needs.
-
-- [ ] **Spike, on the mini:**
-  `docker exec pihole pihole-FTL --config dns.interface col0` and
-  `docker exec pihole pihole-FTL --config dns.listeningMode BIND`, then
-  `colima restart` (this is the exact failure path). Expected: no
-  `CRIT ... Address in use` in `docker logs pihole`, and the verification set
-  passes without anyone killing dnsmasq. If `col0` is not stable across
-  restarts or BIND misbehaves, revert both settings to `ALL` and stop; the
-  reconciler's pkill stays the fix and this WP closes as "not viable, why".
-- [ ] **If green:** `doctor.sh:183-206` check 4 currently insists on `ALL`;
-  change it to accept `BIND` when `dns.interface` is `col0` (and keep fixing
-  anything else to that pair). Add both `--config` lines to `install.sh` after
-  the existing port sed. Commit: `fix: pihole binds only col0, so Lima's dnsmasq cannot take port 53`.
+**Result 2026-09-17: NOT VIABLE.** With `dns.interface = col0` and
+`dns.listeningMode = BIND`, pihole-FTL still binds `127.0.0.1` and `::1`
+and `colima restart` produced the same `Address in use` CRIT, with DNS dead
+even on `192.168.64.2`. Settings reverted to `""` / `ALL`. The reconciler's
+repair (doctor check 5 kills Lima's dnsmasq, check 8 restarts pihole on
+`unhealthy`) is the permanent fix; measured self-heal after a Colima
+restart: 8 minutes. A durable alternative would disable the guest dnsmasq
+on the Lima side, which is out of this plan. Evidence:
+`.superpowers/sdd/2026-09-17-outage-resilience/task-3-report.md` (session
+workspace; summarized in `docs/diagnostics.md`).
 
 ---
 
