@@ -17,4 +17,6 @@ id = "e51232ef049d46d6ac163b821eca286a"
 [vars]
 # Practitioner: swap for the public hostname once Step 1 (tunnel exposure) is done.
 STATUS_URL = "https://status.nate.green/status.json"
-# NTFY_TOPIC is a secret: wrangler secret put NTFY_TOPIC
+NTFY_URL = "https://ntfy.nate.green"
+NTFY_TOPIC = "homelab"
+# NTFY_TOKEN is a secret: wrangler secret put NTFY_TOKEN (a write-only token on the self-hosted ntfy)

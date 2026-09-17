@@ -1,7 +1,7 @@
 # Monitoring: free alerting on Cloudflare
 
 A Cloudflare Worker (`monitoring/worker/`) polls the homelab's public status
-feed and pushes to a phone via ntfy.sh when the mini goes stale or red. It
+feed and pushes to a phone via the self-hosted ntfy when the mini goes stale or red. It
 exists because a 2026-09-16 power loss went 11 hours with no alert: nothing
 was watching the watcher.
 
@@ -95,7 +95,7 @@ left for the practitioner to complete before the alert path is live.
 2. **Add the Cloudflare Tunnel Health notification.** In the Cloudflare
    dashboard, under Notifications, add a "Cloudflare Tunnel Health Alert"
    if the free plan offers it. Deliver it as a webhook to
-   `https://ntfy.sh/<topic>` (ntfy accepts a plain POST body as the
+   `https://the self-hosted ntfy/<topic>` (ntfy accepts a plain POST body as the
    message). If the free plan doesn't offer this notification, skip it —
    the Worker's staleness check covers the mini being off anyway, about 10
    minutes later.
@@ -113,7 +113,7 @@ npx wrangler secret put NTFY_TOPIC   # paste the hex string above as the topic
 npx wrangler deploy
 ```
 
-ntfy.sh topics are public unless reserved (a paid feature): anyone who
+the self-hosted ntfy topics are public unless reserved (a paid feature): anyone who
 learns the topic name can read the alerts and post fake ones to it. That's
 why the topic is generated randomly rather than a memorable word, and kept
 out of the repo — it lives only as this wrangler secret.
@@ -146,3 +146,24 @@ push timestamps as the proof this alerting path actually fires.
 `docker stop pihole` is not a valid proof: doctor's check 7 restarts a
 stopped container inside the same `--fix` run, so the reconciler heals it
 before any Worker tick ever observes it down.
+
+## ntfy is self-hosted on the mini
+
+ntfy runs as the Dokku app `ntfy` (image `binwiederhier/ntfy`, start
+command `serve`, data in `/var/lib/dokku/data/storage/ntfy`), tailnet
+`https://ntfy.homelab.nate.green`, public `https://ntfy.nate.green`
+through the tunnel. Auth is `deny-all` by default: user `homelab-monitor`
+has write-only access to topic `homelab` (the Worker holds one of its
+tokens as the secret `NTFY_TOKEN`); user `nathan` has read-only access
+(the phone subscribes as that user). Anonymous can neither read nor
+publish. Manage with `docker exec ntfy.web.1 ntfy user|access|token ...`.
+
+Why not ntfy.sh: its anonymous quota is per source IP, and a Cloudflare
+Worker shares its egress IP with every other Worker, so pushes were
+refused with 429 "daily message quota reached" on 2026-09-17.
+
+The trade: pushes about the mini only leave while the mini is up. A partial
+outage (serve down, DNS dead, a container gone) is the class this covers.
+For the mini being fully off, enable Cloudflare's Tunnel Health
+notification (email, free); the Worker's staleness check has nothing to
+deliver to in that case.

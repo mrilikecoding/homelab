@@ -74,9 +74,14 @@ export default {
 
     let ntfyRes;
     try {
-      ntfyRes = await fetch(`https://ntfy.sh/${env.NTFY_TOPIC}`, {
+      ntfyRes = await fetch(`${env.NTFY_URL}/${env.NTFY_TOPIC}`, {
         method: "POST",
-        headers: { Title: title, Priority: priority, Tags: tags },
+        headers: {
+          Authorization: `Bearer ${env.NTFY_TOKEN}`,
+          Title: title,
+          Priority: priority,
+          Tags: tags,
+        },
         body: `${verdict.why} (${new Date().toISOString()})`,
       });
     } catch {

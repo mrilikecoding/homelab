@@ -112,10 +112,12 @@ describe("evaluate", () => {
 
 describe("scheduled", () => {
   const STATUS_URL = "https://status.example/status.json";
-  const NTFY_TOPIC = "test-topic";
+  const NTFY_URL = "https://ntfy.example.test";
+const NTFY_TOKEN = "tk_test";
+const NTFY_TOPIC = "test-topic";
 
   function ntfyCalls(fetchMock) {
-    return fetchMock.mock.calls.filter(([url]) => url === `https://ntfy.sh/${NTFY_TOPIC}`);
+    return fetchMock.mock.calls.filter(([url]) => url === `${NTFY_URL}/${NTFY_TOPIC}`);
   }
 
   it("a single red tick after ok is held as pending, not pushed", async () => {
@@ -127,7 +129,7 @@ describe("scheduled", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const state = fakeState({ last: "ok" });
-    const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
+    const env = { STATUS_URL, NTFY_URL, NTFY_TOPIC, NTFY_TOKEN, STATE: state };
 
     await worker.scheduled({}, env);
 
@@ -143,7 +145,7 @@ describe("scheduled", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const state = fakeState({ last: "ok", pending: "red:dns" });
-    const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
+    const env = { STATUS_URL, NTFY_URL, NTFY_TOPIC, NTFY_TOKEN, STATE: state };
 
     await worker.scheduled({}, env);
 
@@ -158,7 +160,7 @@ describe("scheduled", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const state = fakeState({ last: "ok" });
-    const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
+    const env = { STATUS_URL, NTFY_URL, NTFY_TOPIC, NTFY_TOKEN, STATE: state };
 
     await worker.scheduled({}, env);
 
@@ -176,14 +178,15 @@ describe("scheduled", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const state = fakeState({ last: "ok", pending: "red:dns" });
-    const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
+    const env = { STATUS_URL, NTFY_URL, NTFY_TOPIC, NTFY_TOKEN, STATE: state };
 
     await worker.scheduled({}, env);
 
     const calls = ntfyCalls(fetchMock);
     expect(calls).toHaveLength(1);
     const [url, options] = calls[0];
-    expect(url).toBe(`https://ntfy.sh/${NTFY_TOPIC}`);
+    expect(url).toBe(`${NTFY_URL}/${NTFY_TOPIC}`);
+    expect(options.headers.Authorization).toBe(`Bearer ${NTFY_TOKEN}`);
     expect(options.method).toBe("POST");
     expect(options.headers.Title).toBe("homelab DOWN");
     expect(options.headers.Priority).toBe("high");
@@ -201,7 +204,7 @@ describe("scheduled", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const state = fakeState({ last: "ok", pending: "red:dns" });
-    const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
+    const env = { STATUS_URL, NTFY_URL, NTFY_TOPIC, NTFY_TOKEN, STATE: state };
 
     await worker.scheduled({}, env);
 
@@ -218,7 +221,7 @@ describe("scheduled", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const state = fakeState({ last: "ok", pending: "red:dns" });
-    const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
+    const env = { STATUS_URL, NTFY_URL, NTFY_TOPIC, NTFY_TOKEN, STATE: state };
 
     await worker.scheduled({}, env);
 
@@ -235,7 +238,7 @@ describe("scheduled", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const state = fakeState({ last: "red:dns" });
-    const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
+    const env = { STATUS_URL, NTFY_URL, NTFY_TOPIC, NTFY_TOKEN, STATE: state };
 
     await worker.scheduled({}, env);
 
@@ -252,14 +255,15 @@ describe("scheduled", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const state = fakeState({ last: "red:dns" });
-    const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
+    const env = { STATUS_URL, NTFY_URL, NTFY_TOPIC, NTFY_TOKEN, STATE: state };
 
     await worker.scheduled({}, env);
 
     const calls = ntfyCalls(fetchMock);
     expect(calls).toHaveLength(1);
     const [url, options] = calls[0];
-    expect(url).toBe(`https://ntfy.sh/${NTFY_TOPIC}`);
+    expect(url).toBe(`${NTFY_URL}/${NTFY_TOPIC}`);
+    expect(options.headers.Authorization).toBe(`Bearer ${NTFY_TOKEN}`);
     expect(options.method).toBe("POST");
     expect(options.headers.Title).toBe("homelab still DOWN: red: dns, serve");
     expect(options.headers.Priority).toBe("high");
@@ -276,7 +280,7 @@ describe("scheduled", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const state = fakeState({ last: "red:dns" });
-    const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
+    const env = { STATUS_URL, NTFY_URL, NTFY_TOPIC, NTFY_TOKEN, STATE: state };
 
     await worker.scheduled({}, env);
 
@@ -293,14 +297,15 @@ describe("scheduled", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const state = fakeState({ last: "red:dns" });
-    const env = { STATUS_URL, NTFY_TOPIC, STATE: state };
+    const env = { STATUS_URL, NTFY_URL, NTFY_TOPIC, NTFY_TOKEN, STATE: state };
 
     await worker.scheduled({}, env);
 
     const calls = ntfyCalls(fetchMock);
     expect(calls).toHaveLength(1);
     const [url, options] = calls[0];
-    expect(url).toBe(`https://ntfy.sh/${NTFY_TOPIC}`);
+    expect(url).toBe(`${NTFY_URL}/${NTFY_TOPIC}`);
+    expect(options.headers.Authorization).toBe(`Bearer ${NTFY_TOKEN}`);
     expect(options.method).toBe("POST");
     expect(options.headers.Title).toBe("homelab recovered");
     expect(options.headers.Priority).toBe("default");
