@@ -34,8 +34,8 @@ doctor_ok=false
 colima_ok=false; colima status >/dev/null 2>&1 && colima_ok=true
 dns_ok=false;    dig +time=2 +tries=1 @100.92.166.102 pi.hole +short 2>/dev/null | grep -qE '^[0-9]+\.[0-9]+\.' && dns_ok=true   # dig prints its timeout banner to stdout; require an IP
 serve_ok=false;  curl -fsS -m 5 http://127.0.0.1:8765/api/models 2>/dev/null | grep -q '"models"' && serve_ok=true
-apps_ok=false;   [[ "$(docker inspect --format '{{.State.Running}}' dokku pihole 2>/dev/null | sort -u)" == "true" ]] && apps_ok=true
-ph=$(docker inspect --format '{{.State.Health.Status}}' pihole 2>/dev/null); pihole_ok=false; [[ "$ph" == "healthy" || -z "$ph" ]] && pihole_ok=true
+apps_ok=false;   [[ "$(docker inspect --format '{{.State.Running}}' dokku pihole 2>/dev/null | grep -c '^true$')" == "2" ]] && apps_ok=true
+ph=$(docker inspect --format '{{.State.Health.Status}}' pihole 2>/dev/null); pihole_ok=false; [[ "$ph" == "healthy" ]] && pihole_ok=true
 all_ok=false; [[ $doctor_ok == true && $dns_ok == true && $serve_ok == true && $colima_ok == true && $apps_ok == true && $pihole_ok == true ]] && all_ok=true
 mkdir -p "$SCRIPT_DIR/status/html"
 printf '{"generated":"%s","ok":%s,"checks":{"colima":%s,"doctor":%s,"dns":%s,"pihole_healthy":%s,"apps":%s,"serve":%s}}\n' \
