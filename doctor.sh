@@ -93,7 +93,7 @@ run_server_checks() {
     else
         check_fail "no routable IP"
         if try_fix "restarting Colima with --network-address" \
-            bash -c 'colima stop 2>/dev/null; colima start --network-address'; then
+            bash -c 'LIMA_HOME=$HOME/.colima/_lima limactl disk unlock colima 2>/dev/null || true; colima stop 2>/dev/null; colima start --network-address'; then
             # Kill dnsmasq, restart containers, update .env
             colima ssh -- sudo pkill dnsmasq 2>/dev/null || true
             colima_ip=$(colima list -j 2>/dev/null | grep -o '"address":"[^"]*"' | cut -d'"' -f4)
