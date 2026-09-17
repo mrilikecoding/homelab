@@ -249,6 +249,53 @@ homelab doctor --fix
 
 ---
 
+## After a reboot
+
+What survives a reboot on its own, and what `reconcile.sh` (launchd job
+`com.homelab.reconcile`) has to bring back.
+
+### Comes back alone
+
+| Service | Mechanism |
+|---------|-----------|
+| llm-orc serve | `~/Library/LaunchAgents/com.llm-orc.serve.plist` (`RunAtLoad`) |
+| ollama | `brew services`, via `~/Library/LaunchAgents/homebrew.mxcl.ollama.plist` |
+| Cloudflare Tunnel | `/Library/LaunchDaemons/com.homelab.tunnel.plist` |
+
+### What the reconciler does
+
+`com.homelab.reconcile` runs `reconcile.sh` at load and every 10 minutes
+(`StartInterval`). It replaces the two Colima autostart units that raced
+against each other and against a stale Lima disk lock after the
+2026-09-16 power loss: `com.colima.start` and `homebrew.mxcl.colima`.
+
+1. If `colima status` fails, checks for the stale disk lock
+   (`~/.colima/_lima/_disks/colima/in_use_by` pointing at a dead
+   hostagent process) and unlocks it with `limactl disk unlock colima`,
+   then runs `colima start --network-address`. `doctor.sh` check 1
+   applies the same unlock before its own restart, so
+   `homelab doctor --fix` recovers from the same failure on demand,
+   not just at boot.
+2. Waits for `docker info` to answer, then runs `doctor.sh --fix` for
+   everything else it already knows how to repair: dnsmasq holding
+   port 53, socat's target IP, Pi-hole's listening mode, and stopped
+   containers.
+3. Probes what's true right now (DNS through the socat forwarder,
+   the llm-orc serve API, Colima, Pi-hole's Docker health status) and
+   writes the result to `status/html/status.json`, served at
+   `https://status.homelab.nate.green/status.json`, whether or not
+   everything passed.
+
+`reconcile.sh` exits 0 only when every probe is healthy, exits 1
+otherwise, and `status.json` records which check failed either way.
+
+### Log
+
+`~/Library/Logs/homelab-reconcile.log` (combined stdout/stderr, appended
+each run).
+
+---
+
 ## Reference
 
 ### Key Files
