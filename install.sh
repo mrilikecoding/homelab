@@ -88,6 +88,8 @@ docker run -d \
   -v ~/pihole/etc-pihole:/etc/pihole \
   -v ~/pihole/etc-dnsmasq.d:/etc/dnsmasq.d \
   --restart=unless-stopped \
+  --health-cmd 'dig +time=2 +tries=1 +short +norecurse @127.0.0.1 pi.hole | grep -qx 127.0.0.1 || exit 1' \
+  --health-interval 30s --health-timeout 5s --health-retries 3 \
   pihole/pihole:latest
 
 echo "==> Waiting for Pi-hole to start..."

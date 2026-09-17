@@ -82,7 +82,7 @@ try_fix() {
 # Server-side checks
 # =============================================================================
 run_server_checks() {
-    TOTAL=9
+    TOTAL=10
 
     # --- Check 1: Colima VM has routable IP ---
     echo -n "[1/${TOTAL}] Colima VM has routable IP ..."
@@ -280,8 +280,30 @@ PLIST"; then
         fi
     fi
 
-    # --- Check 8: TLS certs valid ---
-    echo -n "[8/${TOTAL}] TLS certificates valid ..."
+    # --- Check 8: Pi-hole healthy ---
+    echo -n "[8/${TOTAL}] Pi-hole healthy ..."
+    local pihole_health
+    pihole_health=$(docker inspect --format '{{.State.Health.Status}}' pihole 2>/dev/null)
+    if [[ "$pihole_health" == "healthy" ]]; then
+        check_pass
+    else
+        check_fail "${pihole_health:-no healthcheck}"
+        if try_fix "killing dnsmasq in VM and restarting Pi-hole" \
+            bash -c 'colima ssh -- sudo pkill dnsmasq; docker restart pihole'; then
+            sleep 5
+            local recheck
+            recheck=$(docker inspect --format '{{.State.Health.Status}}' pihole 2>/dev/null)
+            if [[ "$recheck" == "healthy" ]]; then
+                echo -n "      → Re-checking ..."
+                check_fixed
+            else
+                check_fail "still ${recheck:-no healthcheck}"
+            fi
+        fi
+    fi
+
+    # --- Check 9: TLS certs valid ---
+    echo -n "[9/${TOTAL}] TLS certificates valid ..."
     local cert_file="$SCRIPT_DIR/dokku/certs/server.crt"
     if [[ -f "$cert_file" ]]; then
         local expiry
@@ -314,8 +336,8 @@ PLIST"; then
         check_pass "no certs configured (HTTP-only)"
     fi
 
-    # --- Check 9: Cloudflare Tunnel ---
-    echo -n "[9/${TOTAL}] Cloudflare Tunnel ..."
+    # --- Check 10: Cloudflare Tunnel ---
+    echo -n "[10/${TOTAL}] Cloudflare Tunnel ..."
     local tunnel_plist="/Library/LaunchDaemons/com.homelab.tunnel.plist"
     if [[ -f "$tunnel_plist" ]]; then
         if launchctl print system/com.homelab.tunnel 2>/dev/null | grep -q 'state = running'; then
