@@ -286,6 +286,11 @@ against each other and against a stale Lima disk lock after the
    `https://status.homelab.nate.green/status.json`, whether or not
    everything passed.
 
+The reconciler runs under launchd with no TTY, so any `doctor.sh` fix
+that needs `sudo` (rewriting the DNS plist, kickstarting the tunnel,
+cert work) can't prompt for a password and is reported as failing
+rather than applied. Those stay human-run.
+
 `reconcile.sh` exits 0 only when every probe is healthy, exits 1
 otherwise, and `status.json` records which check failed either way.
 

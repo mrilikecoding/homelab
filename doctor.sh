@@ -121,6 +121,7 @@ EOF
     # --- Check 2: socat target matches Colima IP ---
     echo -n "[2/${TOTAL}] socat target matches Colima IP ..."
     local plist="/Library/LaunchDaemons/com.homelab.dns.plist"
+    [[ -f "$plist" ]] || plist="/Library/LaunchDaemons/com.pihole.dns.plist"
     if [[ -f "$plist" && -n "$COLIMA_IP" ]]; then
         local plist_target
         plist_target=$(grep -o 'UDP-SENDTO:[^<]*' "$plist" 2>/dev/null | sed 's/UDP-SENDTO://' | cut -d: -f1)
@@ -315,14 +316,14 @@ PLIST"; then
     echo -n "[9/${TOTAL}] Cloudflare Tunnel ..."
     local tunnel_plist="/Library/LaunchDaemons/com.homelab.tunnel.plist"
     if [[ -f "$tunnel_plist" ]]; then
-        if sudo launchctl list 2>/dev/null | grep -q "com.homelab.tunnel"; then
+        if launchctl print system/com.homelab.tunnel 2>/dev/null | grep -q 'state = running'; then
             check_pass "loaded"
         else
             check_fail "plist exists but daemon not loaded"
             if try_fix "kickstarting com.homelab.tunnel" \
                 sudo launchctl kickstart -k system/com.homelab.tunnel; then
                 sleep 2
-                if sudo launchctl list 2>/dev/null | grep -q "com.homelab.tunnel"; then
+                if launchctl print system/com.homelab.tunnel 2>/dev/null | grep -q 'state = running'; then
                     echo -n "      → Re-checking ..."
                     check_fixed
                 else
