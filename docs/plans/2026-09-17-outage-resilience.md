@@ -125,8 +125,8 @@ doctor_ok=false
 colima_ok=false; colima status >/dev/null 2>&1 && colima_ok=true
 dns_ok=false;    dig +time=2 +tries=1 @100.92.166.102 pi.hole +short 2>/dev/null | grep -qE '^[0-9]+\.[0-9]+\.' && dns_ok=true   # dig prints its timeout banner to stdout; require an IP
 serve_ok=false;  curl -fsS -m 5 http://127.0.0.1:8765/api/models 2>/dev/null | grep -q '"models"' && serve_ok=true
-apps_ok=false;   [[ "$(docker inspect --format '{{.State.Running}}' dokku pihole 2>/dev/null | sort -u)" == "true" ]] && apps_ok=true
-ph=$(docker inspect --format '{{.State.Health.Status}}' pihole 2>/dev/null); pihole_ok=false; [[ "$ph" == "healthy" || -z "$ph" ]] && pihole_ok=true
+apps_ok=false;   [[ "$(docker inspect --format '{{.State.Running}}' dokku pihole 2>/dev/null | grep -c '^true$')" == "2" ]] && apps_ok=true
+ph=$(docker inspect --format '{{.State.Health.Status}}' pihole 2>/dev/null); pihole_ok=false; [[ "$ph" == "healthy" ]] && pihole_ok=true
 all_ok=false; [[ $doctor_ok == true && $dns_ok == true && $serve_ok == true && $colima_ok == true && $apps_ok == true && $pihole_ok == true ]] && all_ok=true
 mkdir -p "$SCRIPT_DIR/status/html"
 printf '{"generated":"%s","ok":%s,"checks":{"colima":%s,"doctor":%s,"dns":%s,"pihole_healthy":%s,"apps":%s,"serve":%s}}\n' \
@@ -216,7 +216,7 @@ exit 1
 - [ ] **Step 1: healthcheck on the container.** Add to the `docker run` in `install.sh`:
 
 ```
-  --health-cmd 'dig +time=2 +tries=1 +short +norecurse @192.168.64.2 pi.hole | grep -qx 127.0.0.1 || exit 1' \
+  --health-cmd 'dig +time=2 +tries=1 +short +norecurse @127.0.0.1 pi.hole | grep -qx 127.0.0.1 || exit 1' \
   --health-interval 30s --health-timeout 5s --health-retries 3 \
 ```
 
@@ -225,15 +225,17 @@ exit 1
   53 to Lima's dnsmasq (which binds `127.0.0.1:53` and `192.168.5.1:53`
   inside the VM), that dnsmasq answers the check's query instead, so the
   container reads "healthy" with pihole's DNS dead; that is the 11-hour
-  green of 2026-09-16. Two things make the new check truthful: it asks
-  `192.168.64.2` (the `col0` address the socat forwarder uses; Lima's
-  dnsmasq never binds it, so only FTL can answer there), and it requires
-  the answer `127.0.0.1` (pihole's own record for `pi.hole`; an upstream
-  resolver would return something else or nothing). If `192.168.64.2` is
-  not stable, fall back to `@127.0.0.1` with the `127.0.0.1` answer
-  requirement, which still fails under the steal because dnsmasq resolves
-  `pi.hole` upstream, not to 127.0.0.1; prove whichever you ship with
-  Step 4.
+  green of 2026-09-16. The fix is the answer requirement, not the address:
+  requiring `127.0.0.1` (pihole's own record for `pi.hole`) fails under the
+  steal because Lima's dnsmasq resolves `pi.hole` upstream instead, to
+  something else or nothing.
+
+  **Shipped:** `@127.0.0.1` with the `127.0.0.1` answer requirement, the
+  form above. **Tried and not viable:** `@192.168.64.2` (the `col0` address
+  the socat forwarder uses, where Lima's dnsmasq never binds) — FTL
+  synthesizes the `pi.hole` answer to match the query's arrival address, so
+  that form returns `192.168.64.2`, never `127.0.0.1`, even when pihole is
+  healthy.
 
 - [ ] **Step 2: doctor check "pihole healthy".** After check 7 in
   `run_server_checks`: read `docker inspect --format '{{.State.Health.Status}}' pihole`;
@@ -310,38 +312,75 @@ unreachable, stale, or red; one push on recovery; nothing in between.
 ```js
 // monitoring/worker/src/index.js
 const STALE_MS = 15 * 60 * 1000;
+const FUTURE_SKEW_MS = 60 * 1000;
 
 export async function evaluate(res, now) {
-  if (!res.ok) return { ok: false, why: `status.json ${res.status}` };
-  const body = await res.json();
-  const age = now - Date.parse(body.generated);
-  if (!(age < STALE_MS)) return { ok: false, why: `stale ${Math.round(age / 60000)} min` };
+  if (!res.ok) return { ok: false, cls: "http", why: `status.json ${res.status}` };
+  let body;
+  try {
+    body = await res.json();
+  } catch {
+    return { ok: false, cls: "nojson", why: "status.json body not valid JSON" };
+  }
+  const generated = Date.parse(body.generated);
+  if (Number.isNaN(generated)) return { ok: false, cls: "stale", why: "no timestamp in status.json" };
+  const age = now - generated;
+  if (age < -FUTURE_SKEW_MS) {
+    return { ok: false, cls: "stale", why: "clock skew: generated is in the future" };
+  }
+  if (!(age < STALE_MS)) return { ok: false, cls: "stale", why: `stale ${Math.round(age / 60000)} min` };
   if (body.ok !== true) {
     const red = Object.entries(body.checks || {}).filter(([, v]) => v !== true).map(([k]) => k);
-    return { ok: false, why: `red: ${red.join(", ") || "unknown"}` };
+    const sorted = [...red].sort();
+    return { ok: false, cls: `red:${sorted.join(",") || "unknown"}`, why: `red: ${red.join(", ") || "unknown"}` };
   }
-  return { ok: true, why: "ok" };
+  return { ok: true, cls: "ok", why: "ok" };
 }
 
 export default {
   async scheduled(_event, env) {
     let verdict;
     try {
-      const res = await fetch(env.STATUS_URL, { signal: AbortSignal.timeout(10000) });
+      const res = await fetch(env.STATUS_URL, { signal: AbortSignal.timeout(10000), cache: "no-store" });
       verdict = await evaluate(res, Date.now());
     } catch (e) {
-      verdict = { ok: false, why: `unreachable: ${e.message}` };
+      verdict = { ok: false, cls: "unreachable", why: `unreachable: ${e.message}` };
     }
     const last = (await env.STATE.get("last")) || "ok";
-    const nowState = verdict.ok ? "ok" : "down";
-    if (nowState !== last) {
-      const title = verdict.ok ? "homelab recovered" : "homelab DOWN";
-      await fetch(`https://ntfy.sh/${env.NTFY_TOPIC}`, {
+    if (verdict.cls === last) return;
+
+    const wasOk = last === "ok";
+    let title;
+    let priority;
+    let tags;
+    if (wasOk) {
+      title = "homelab DOWN";
+      priority = "high";
+      tags = "rotating_light";
+    } else if (verdict.ok) {
+      title = "homelab recovered";
+      priority = "default";
+      tags = "white_check_mark";
+    } else {
+      title = `homelab still DOWN: ${verdict.why}`;
+      priority = "high";
+      tags = "rotating_light";
+    }
+
+    let ntfyRes;
+    try {
+      ntfyRes = await fetch(`https://ntfy.sh/${env.NTFY_TOPIC}`, {
         method: "POST",
-        headers: { Title: title, Priority: verdict.ok ? "default" : "high", Tags: verdict.ok ? "white_check_mark" : "rotating_light" },
+        headers: { Title: title, Priority: priority, Tags: tags },
         body: `${verdict.why} (${new Date().toISOString()})`,
       });
-      await env.STATE.put("last", nowState);
+    } catch {
+      ntfyRes = null;
+    }
+    // Only persist the new state once the alert actually went out; on
+    // failure leave "last" as-is so the next tick retries the push.
+    if (ntfyRes && ntfyRes.ok) {
+      await env.STATE.put("last", verdict.cls);
     }
   },
 };
@@ -376,9 +415,13 @@ STATUS_URL = "https://status.<zone>/status.json"
   KV 1k writes/day; this uses ~300 requests and at most a handful of writes a day.
 
 - [ ] **Step 6: prove it.** Phone: ntfy app subscribed to the topic. Then
-  `ssh ng-mini docker stop pihole`; within ~10 minutes (one reconcile run
-  writes `"dns": false`, one Worker tick reads it) a "homelab DOWN: red: dns"
-  push arrives; `docker start pihole`; a "recovered" push follows. Paste both
+  `ssh ng-mini 'launchctl bootout gui/$(id -u)/com.llm-orc.serve'`; within
+  ~10 minutes (one reconcile run writes `"serve": false`, one Worker tick
+  reads it) a "homelab DOWN: red: serve" push arrives;
+  `ssh ng-mini 'launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.llm-orc.serve.plist'`;
+  a "homelab recovered" push follows. `docker stop pihole` is not a valid
+  proof: doctor's check 7 restarts a stopped container inside the same
+  `--fix` run, before any Worker tick ever sees it down. Paste both
   timestamps in the PR. Commit: `feat: cloudflare cron worker alerts to ntfy on stale or red status`.
 
 ---
