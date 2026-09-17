@@ -120,8 +120,8 @@ EOF
 
     # --- Check 2: socat target matches Colima IP ---
     echo -n "[2/${TOTAL}] socat target matches Colima IP ..."
-    local plist="/Library/LaunchDaemons/com.homelab.dns.plist"
-    [[ -f "$plist" ]] || plist="/Library/LaunchDaemons/com.pihole.dns.plist"
+    local plist="/Library/LaunchDaemons/com.pihole.dns.plist"
+    [[ -f "$plist" ]] || plist="/Library/LaunchDaemons/com.homelab.dns.plist"
     if [[ -f "$plist" && -n "$COLIMA_IP" ]]; then
         local plist_target
         plist_target=$(grep -o 'UDP-SENDTO:[^<]*' "$plist" 2>/dev/null | sed 's/UDP-SENDTO://' | cut -d: -f1)
@@ -130,6 +130,8 @@ EOF
         else
             check_fail "plist has $plist_target, Colima is $COLIMA_IP"
             local ts_ip="${TAILSCALE_IP:-$(tailscale ip -4 2>/dev/null)}"
+            local label
+            label=$(basename "$plist" .plist)
             if [[ -n "$ts_ip" ]] && try_fix "rewriting plist with correct IP" \
                 bash -c "sudo tee '$plist' > /dev/null << PLIST
 <?xml version=\"1.0\" encoding=\"UTF-8\"?>
@@ -137,7 +139,7 @@ EOF
 <plist version=\"1.0\">
 <dict>
     <key>Label</key>
-    <string>com.homelab.dns</string>
+    <string>${label}</string>
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/bin/socat</string>
@@ -151,7 +153,7 @@ EOF
 </dict>
 </plist>
 PLIST"; then
-                sudo launchctl kickstart -k system/com.homelab.dns 2>/dev/null || true
+                sudo launchctl kickstart -k "system/${label}" 2>/dev/null || true
                 sleep 1
                 echo -n "      → Re-checking ..."
                 check_fixed
