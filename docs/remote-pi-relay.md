@@ -62,9 +62,17 @@ after an `nvm install` to a newer Node: `npm i -g remote-pi`,
 
 Pairing the mini is interactive: `ssh -t ng-mini`, `cd ~/agents/mini`,
 `pi`, `/remote-pi` (wizard: name, session, yes to relay), `/remote-pi pair`,
-scan, `/exit`, then `remote-pi daemon restart`. The Pi-key sits in the
-mini's Keychain (the LaunchAgent runs in the logged-in GUI session), not in
-`~/.pi/remote/identity.json`.
+scan, `/exit`, then `remote-pi daemon restart`.
+
+Identity is file-backed on the mini: `REMOTE_PI_ALLOW_FILE_IDENTITY=1` in
+`~/.zshrc` and in the supervisor plist. An ssh session cannot reach the
+login Keychain ("keychain is locked or access was denied"), while the
+LaunchAgent in the GUI session can, so without the flag the two contexts
+would hold different Pi-keys and a pairing made over ssh would not cover
+the daemon. `~/.pi/remote/identity.json` (0600) wins over the Keychain for
+every process once it exists, so both converge on it; the daemon needs one
+restart after the file is minted. Back that file up with the rest of
+`~/.pi/remote/`; losing it means re-pairing.
 
 ## Checking it
 
