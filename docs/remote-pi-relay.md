@@ -21,20 +21,50 @@ bodies). Same volume arrangement as ntfy, so it survives `dokku` rebuilds
 and Colima restarts. If it is ever lost, clients re-publish their peer lists
 at their next change.
 
-Tailnet only: `wss://remote-pi-relay.homelab.nate.green`. Not on the
-Cloudflare tunnel; the phone needs Tailscale up, which it already does for
-ntfy. Add `homelab public remote-pi-relay <hostname>` if that changes.
+Tailnet only, at `https://remote-pi-relay.homelab.nate.green`. Give the
+extension and the phone app that `https://` form; both reject `wss://` and
+upgrade to WebSocket themselves. Not on the Cloudflare tunnel; the phone
+needs Tailscale up, which it already does for ntfy. Add
+`homelab public remote-pi-relay <hostname>` if that changes.
 
-## Client side
+## Clients
 
-On any machine running Pi:
+Mesh membership is automatic: pairing the phone with a PC adds that PC's
+Pi key to the phone's Owner-signed member list, which the app publishes to
+`/mesh` on this relay. Two PCs paired with the same phone against the same
+relay can reach each other (`/remote-pi peers` shows the other PC). Set the
+app's relay URL (preferences) to the address above before pairing.
 
-```bash
-pi install npm:remote-pi
-```
+**Laptop.** Pi from nvm (Node 22), `pi install npm:remote-pi`;
+`~/.pi/remote/config.json` holds `{"relay": "<address above>"}`. Global Pi
+config (`settings.json`, `models.json`, the llm-orc bridge extension) lives
+in dotfiles under `home/.pi/agent/`. Pair with `/remote-pi` then
+`/remote-pi pair` in an interactive `pi`.
 
-then `/remote-pi` in the Pi chat, choose a custom relay, enter
-`wss://remote-pi-relay.homelab.nate.green`, scan the QR with the phone app.
+**Mini (daemon).** Set up 2026-09-18: nvm Node 22 (now the nvm default),
+`npm i -g @earendil-works/pi-coding-agent remote-pi`, supervisor via
+`remote-pi install` (LaunchAgent `dev.remotepi.supervisord`, log
+`~/.pi/remote/supervisord.log`), one daemon `mini` in `~/agents/mini`. Pi's
+default model there is the local serve over loopback
+(`~/.pi/agent/models.json` -> `http://127.0.0.1:8765/v1`); the llm-orc
+bridge reads `LLM_ORC_URL=http://127.0.0.1:8765`, exported in `~/.zshrc`
+for shells and added to the supervisor plist's `EnvironmentVariables`
+(along with `/usr/local/bin` on PATH) for the daemon. `remote-pi install`
+rewrites that plist, so re-add both keys if it is ever re-run.
+
+Two remote-pi copies conflict: the supervisor passes its global copy with
+`-e`, and if `settings.json` also lists `npm:remote-pi` the tools register
+twice and the daemon crash-loops. So on the mini `settings.json` points at
+the same global path (`pi install $(npm root -g)/remote-pi/dist/index.js`);
+Pi dedupes an identical path. That path contains the Node version, so
+after an `nvm install` to a newer Node: `npm i -g remote-pi`,
+`pi install <new path>`, `remote-pi install`, re-add the plist keys.
+
+Pairing the mini is interactive: `ssh -t ng-mini`, `cd ~/agents/mini`,
+`pi`, `/remote-pi` (wizard: name, session, yes to relay), `/remote-pi pair`,
+scan, `/exit`, then `remote-pi daemon restart`. The Pi-key sits in the
+mini's Keychain (the LaunchAgent runs in the logged-in GUI session), not in
+`~/.pi/remote/identity.json`.
 
 ## Checking it
 
