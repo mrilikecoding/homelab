@@ -60,9 +60,20 @@ Pi dedupes an identical path. That path contains the Node version, so
 after an `nvm install` to a newer Node: `npm i -g remote-pi`,
 `pi install <new path>`, `remote-pi install`, re-add the plist keys.
 
-Pairing the mini is interactive: `ssh -t ng-mini`, `cd ~/agents/mini`,
-`pi`, `/remote-pi` (wizard: name, session, yes to relay), `/remote-pi pair`,
-scan, `/exit`, then `remote-pi daemon restart`.
+Pairing the mini is interactive, and the order matters:
+`remote-pi daemon stop` FIRST, then `ssh -t ng-mini`, `cd ~/agents/mini`,
+`pi`, `/remote-pi`, `/remote-pi pair`, scan, quit `pi`, then
+`remote-pi daemon start`. A daemon left running during pairing polls the
+phone's member list every 60 s and, if its own key is not in it (it was on
+another key, or the list was published a moment before it), treats that as
+a revocation and empties `~/.pi/remote/peers.json` (upstream #95/#69).
+That is how the first pairing on 2026-09-18 was lost.
+
+The agent name in `~/agents/mini/.pi/remote-pi/config.json` must stay
+`mini`, equal to the folder name: the relay room is derived from the cwd
+alone when the name is the folder's default, and from cwd+name otherwise.
+The daemon's registry name is `mini`, so an interactive session with any
+other name pairs the phone into a room the daemon never joins.
 
 Identity is file-backed on the mini: `REMOTE_PI_ALLOW_FILE_IDENTITY=1` in
 `~/.zshrc` and in the supervisor plist. An ssh session cannot reach the
