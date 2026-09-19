@@ -83,7 +83,7 @@ try_fix() {
 # Server-side checks
 # =============================================================================
 run_server_checks() {
-    TOTAL=10
+    TOTAL=11
     local PIHOLE_RESTARTED=false
 
     # --- Check 1: Colima VM has routable IP ---
@@ -349,6 +349,41 @@ PLIST"; then
                     check_fixed
                 else
                     check_fail "still not loaded"
+                fi
+            fi
+        fi
+    else
+        check_pass "not configured (skipped)"
+    fi
+
+    # --- Check 11: llm-orc serve runs the installed version ---
+    # `brew upgrade llm-orchestra` replaces the package under the running
+    # serve; it keeps answering from memory (health reports 0.0.0 once its
+    # metadata is gone) until restarted. Nothing else notices.
+    echo -n "[11/${TOTAL}] llm-orc serve runs the installed version ..."
+    local serve_label="com.llm-orc.serve"
+    local serve_plist="$HOME/Library/LaunchAgents/${serve_label}.plist"
+    if [[ -f "$serve_plist" ]] && command -v llm-orc >/dev/null 2>&1; then
+        local installed running
+        installed=$(llm-orc --version 2>/dev/null | awk '{print $NF}')
+        running=$(curl -fsS -m 5 http://127.0.0.1:8765/health 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')
+        if [[ -n "$installed" && "$running" == "$installed" ]]; then
+            check_pass "$running"
+        else
+            check_fail "installed ${installed:-?}, running ${running:-not answering}"
+            if try_fix "kickstarting ${serve_label}" \
+                launchctl kickstart -k "gui/$(id -u)/${serve_label}"; then
+                local i
+                for i in 1 2 3 4 5 6 7 8 9 10; do
+                    sleep 3
+                    running=$(curl -fsS -m 5 http://127.0.0.1:8765/health 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')
+                    [[ "$running" == "$installed" ]] && break
+                done
+                echo -n "      → Re-checking ..."
+                if [[ "$running" == "$installed" ]]; then
+                    check_fixed
+                else
+                    check_fail "still running ${running:-nothing} after kickstart"
                 fi
             fi
         fi
