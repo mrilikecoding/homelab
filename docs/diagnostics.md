@@ -63,6 +63,7 @@ App container (per-app, managed by Dokku)
 | 7 | Cloudflare Tunnel down | Public apps unreachable; private (Tailscale) access still works | Tunnel daemon crashed or not loaded | `sudo launchctl list \| grep com.homelab.tunnel` | `sudo launchctl kickstart -k system/com.homelab.tunnel` |
 | 8 | Containers stopped | Apps return 502/connection refused; DNS may also fail | Docker containers stopped (crash, OOM, manual stop) | `docker ps --format '{{.Names}} {{.Status}}'` | `docker start pihole dokku` |
 | 9 | TLS certs expired | Browser shows certificate warnings; HTTPS fails | Let's Encrypt certs not renewed | `openssl x509 -enddate -noout -in ~/homelab/dokku/certs/server.crt` | Run `renew-certs.sh` |
+| 10 | llm-orc serve stale after upgrade | `/health` reports `0.0.0` or an older version than `llm-orc --version`; new code paths error | `brew upgrade llm-orchestra` replaced the package under the running serve, which nothing restarts | `curl -s 127.0.0.1:8765/health` vs `llm-orc --version` (doctor check 11) | `homelab doctor --fix` (the reconciler does this within 10 min); same fix for a hung serve |
 
 ---
 
