@@ -363,9 +363,14 @@ PLIST"; then
     echo -n "[11/${TOTAL}] llm-orc serve runs the installed version ..."
     local serve_label="com.llm-orc.serve"
     local serve_plist="$HOME/Library/LaunchAgents/${serve_label}.plist"
-    if [[ -f "$serve_plist" ]] && command -v llm-orc >/dev/null 2>&1; then
+    local llm_orc_bin=""
+    if [[ -f "$serve_plist" ]]; then
+        # PATH first (tests can shim it), else the binary launchd runs.
+        llm_orc_bin=$(command -v llm-orc 2>/dev/null || plutil -extract ProgramArguments.0 raw "$serve_plist" 2>/dev/null)
+    fi
+    if [[ -n "$llm_orc_bin" && -x "$llm_orc_bin" ]]; then
         local installed running
-        installed=$(llm-orc --version 2>/dev/null | awk '{print $NF}')
+        installed=$("$llm_orc_bin" --version 2>/dev/null | awk '{print $NF}')
         running=$(curl -fsS -m 5 http://127.0.0.1:8765/health 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')
         if [[ -n "$installed" && "$running" == "$installed" ]]; then
             check_pass "$running"
