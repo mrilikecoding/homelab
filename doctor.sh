@@ -425,10 +425,13 @@ run_client_checks() {
 
     # --- Check 2: DNS resolution ---
     echo -n "[2/${TOTAL}] DNS resolution ..."
-    local test_domain="${APP_DOMAIN:-nate.green}"
-    local dns_result
-    dns_result=$(dig @"$server_ip" "test.homelab.${test_domain}" +short +timeout=3 +tries=1 2>/dev/null)
-    if [[ -n "$dns_result" ]]; then
+    local test_domain="${APP_DOMAIN:-}"
+    local dns_result=""
+    [[ -n "$test_domain" ]] && dns_result=$(dig @"$server_ip" "test.homelab.${test_domain}" +short +timeout=3 +tries=1 2>/dev/null)
+    if [[ -z "$test_domain" ]]; then
+        check_fail "APP_DOMAIN not set"
+        echo "      → Set APP_DOMAIN in $SCRIPT_DIR/config.sh or export it."
+    elif [[ -n "$dns_result" ]]; then
         check_pass "test.homelab.${test_domain} → ${dns_result}"
     else
         check_fail "dig @$server_ip test.homelab.${test_domain} returned nothing"
