@@ -19,7 +19,7 @@ notification covers the mini being off entirely. No paid infrastructure.
 Cloudflare Workers (Cron Triggers + KV, free plan), ntfy.sh. No paid services.
 
 **Spec:** the incident and its diagnosis are in the practitioner's llm-orc session
-memory (`reference-ng-mini-reboot-recovery`) and summarized in
+memory (`reference-<host>-reboot-recovery`) and summarized in
 `docs/diagnostics.md` (WP1 adds the section). Decisions made 2026-09-17:
 pihole stays the tailnet-wide resolver by design; the mini stays the single
 point of entry; a UPS is optional because the mini auto-reboots; no paid
@@ -28,12 +28,12 @@ and ntfy.sh, and a self-hosted ntfy on the mini is for non-outage notifications.
 
 ## Global constraints
 
-- Everything on the mini runs as `nathanielgreen`, gui launchd domain (console
+- Everything on the mini runs as `<user>`, gui launchd domain (console
   is logged in; `caffeinate` holds sleep off). Non-login shells lack
   `/usr/local/bin` on PATH: absolute paths in every plist and ssh command.
 - Colima is started with `--network-address` (VM at `192.168.64.2`, interface
   `col0` inside the VM). The socat forwarder (`com.pihole.dns`, system domain)
-  sends `100.92.166.102:53 -> 192.168.64.2:53`.
+  sends `<tailscale-ip>:53 -> 192.168.64.2:53`.
 - `doctor.sh` is the reconciler's brain; new checks go there, not in new scripts.
   It is idempotent and takes `--fix`.
 - The alerting path must not depend on the mini: it runs on Cloudflare's free
@@ -49,10 +49,10 @@ and ntfy.sh, and a self-hosted ntfy on the mini is for non-outage notifications.
 
 From a tailnet device that is not the mini:
 
-    dig +time=3 +tries=1 @100.92.166.102 llm-orc.homelab.nate.green +short   # 100.92.166.102
-    curl -s https://status.homelab.nate.green/ -o /dev/null -w '%{http_code}'  # 200
-    curl -s https://llm-orc.homelab.nate.green/health                          # {"status":"healthy",...}
-    curl -s https://llm-orc.homelab.nate.green/api/models                      # router reachable; list of models
+    dig +time=3 +tries=1 @<tailscale-ip> llm-orc.homelab.example.com +short   # <tailscale-ip>
+    curl -s https://status.homelab.example.com/ -o /dev/null -w '%{http_code}'  # 200
+    curl -s https://llm-orc.homelab.example.com/health                          # {"status":"healthy",...}
+    curl -s https://llm-orc.homelab.example.com/api/models                      # router reachable; list of models
 
 ---
 
@@ -80,7 +80,7 @@ shape WP4 consumes:
 `doctor` is the aggregate exit of `doctor.sh --fix` (all nine checks);
 `apps` is the `dokku` and `pihole` containers both `Running` per
 `docker inspect`; `dns` is a query through the socat forwarder
-(`dig @100.92.166.102 pi.hole`, must return an IP), measured AFTER doctor's
+(`dig @<tailscale-ip> pi.hole`, must return an IP), measured AFTER doctor's
 repairs, so it is "is DNS answering now", not "did it blip"; `serve` is
 `curl 127.0.0.1:8765/api/models` returning JSON; `pihole_healthy` is the
 Docker health status from WP2 (`true` until WP2 lands). The write happens on
@@ -123,7 +123,7 @@ doctor_ok=false
 # 3. Publish what is true right now, after repairs. WP4's Worker reads this
 #    through the tunnel. Every run reaches this block.
 colima_ok=false; colima status >/dev/null 2>&1 && colima_ok=true
-dns_ok=false;    dig +time=2 +tries=1 @100.92.166.102 pi.hole +short 2>/dev/null | grep -qE '^[0-9]+\.[0-9]+\.' && dns_ok=true   # dig prints its timeout banner to stdout; require an IP
+dns_ok=false;    dig +time=2 +tries=1 @<tailscale-ip> pi.hole +short 2>/dev/null | grep -qE '^[0-9]+\.[0-9]+\.' && dns_ok=true   # dig prints its timeout banner to stdout; require an IP
 serve_ok=false;  curl -fsS -m 5 http://127.0.0.1:8765/api/models 2>/dev/null | grep -q '"models"' && serve_ok=true
 apps_ok=false;   [[ "$(docker inspect --format '{{.State.Running}}' dokku pihole 2>/dev/null | grep -c '^true$')" == "2" ]] && apps_ok=true
 ph=$(docker inspect --format '{{.State.Health.Status}}' pihole 2>/dev/null); pihole_ok=false; [[ "$ph" == "healthy" ]] && pihole_ok=true
@@ -140,7 +140,7 @@ exit 1
 
   `status/html/` is what the `status` Dokku app serves (see
   `status/generate-status.sh`), so `status.json` appears next to `index.html`
-  at `https://status.homelab.nate.green/status.json` with no other change.
+  at `https://status.homelab.example.com/status.json` with no other change.
 
 - [ ] **Step 2a: `doctor.sh` check 2's fix body must name the real daemon.**
   Once check 2 can find `/Library/LaunchDaemons/com.pihole.dns.plist`, its
@@ -166,15 +166,15 @@ exit 1
 <plist version="1.0"><dict>
   <key>Label</key><string>com.homelab.reconcile</string>
   <key>ProgramArguments</key><array>
-    <string>/bin/bash</string><string>/Users/nathanielgreen/homelab/reconcile.sh</string>
+    <string>/bin/bash</string><string>/Users/<user>/homelab/reconcile.sh</string>
   </array>
   <key>EnvironmentVariables</key><dict>
     <key>PATH</key><string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>StartInterval</key><integer>600</integer>
-  <key>StandardOutPath</key><string>/Users/nathanielgreen/Library/Logs/homelab-reconcile.log</string>
-  <key>StandardErrorPath</key><string>/Users/nathanielgreen/Library/Logs/homelab-reconcile.log</string>
+  <key>StandardOutPath</key><string>/Users/<user>/Library/Logs/homelab-reconcile.log</string>
+  <key>StandardErrorPath</key><string>/Users/<user>/Library/Logs/homelab-reconcile.log</string>
 </dict></plist>
 ```
 
@@ -433,10 +433,10 @@ STATUS_URL = "https://status.<zone>/status.json"
   KV 1k writes/day; this uses ~300 requests and at most a handful of writes a day.
 
 - [ ] **Step 6: prove it.** Phone: ntfy app subscribed to the topic. Then
-  `ssh ng-mini 'launchctl bootout gui/$(id -u)/com.llm-orc.serve'`; within
+  `ssh <host> 'launchctl bootout gui/$(id -u)/com.llm-orc.serve'`; within
   ~10 minutes (one reconcile run writes `"serve": false`, one Worker tick
   reads it) a "homelab DOWN: red: serve" push arrives;
-  `ssh ng-mini 'launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.llm-orc.serve.plist'`;
+  `ssh <host> 'launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.llm-orc.serve.plist'`;
   a "homelab recovered" push follows. `docker stop pihole` is not a valid
   proof: doctor's check 7 restarts a stopped container inside the same
   `--fix` run, before any Worker tick ever sees it down. Paste both
