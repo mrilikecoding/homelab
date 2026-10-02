@@ -12,11 +12,11 @@ enabled = true
 binding = "STATE"
 # Replace with the real id after running:
 #   wrangler kv namespace create STATE
-id = "e51232ef049d46d6ac163b821eca286a"
+id = "<kv-namespace-id>"
 
 [vars]
-# Practitioner: swap for the public hostname once Step 1 (tunnel exposure) is done.
-STATUS_URL = "https://status.nate.green/status.json"
-NTFY_URL = "https://ntfy.nate.green"
-NTFY_TOPIC = "homelab"
+# The public hostname of the status page (tunnel exposure) and of your ntfy.
+STATUS_URL = "https://status.example.com/status.json"
+NTFY_URL = "https://ntfy.example.com"
+NTFY_TOPIC = "your-ntfy-topic"
 # NTFY_TOKEN is a secret: wrangler secret put NTFY_TOKEN (a write-only token on the self-hosted ntfy)

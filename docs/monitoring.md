@@ -89,8 +89,8 @@ left for the practitioner to complete before the alert path is live.
      hostname on the `status` app at all.
 
    Once this is live, update `monitoring/worker/wrangler.toml`'s
-   `STATUS_URL` to match (it currently points at
-   `https://status.homelab.nate.green/status.json` as a placeholder).
+   `STATUS_URL` to match (the example file points at
+   `https://status.example.com/status.json` as a placeholder).
 
 2. **Add the Cloudflare Tunnel Health notification.** In the Cloudflare
    dashboard, under Notifications, add a "Cloudflare Tunnel Health Alert"
@@ -102,9 +102,12 @@ left for the practitioner to complete before the alert path is live.
 
 ## Deploying the Worker
 
-From `monitoring/worker/`, one time:
+From `monitoring/worker/`, one time. `wrangler.toml` holds this
+deployment's URLs and KV id, so it is untracked and git-ignored; start it from
+the tracked example:
 
 ```bash
+cp wrangler.example.toml wrangler.toml   # then edit STATUS_URL, NTFY_URL, NTFY_TOPIC
 npx wrangler login
 npx wrangler kv namespace create STATE
 # paste the returned id into wrangler.toml's kv_namespaces[0].id
