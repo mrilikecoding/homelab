@@ -70,7 +70,7 @@ These two steps are dashboard/CLI actions outside the Worker's code and are
 left for the practitioner to complete before the alert path is live.
 
 1. **Expose the status page through the tunnel.** First confirm the app name
-   Dokku knows it by: `ssh ng-mini 'docker exec dokku dokku apps:exists
+   Dokku knows it by: `ssh <host> 'docker exec dokku dokku apps:exists
    status'` (`tunnel-add-app.sh` requires the app to already exist and fails
    without it). Then run `homelab public status status.<your public zone>`
    (the existing `tunnel-add-app.sh` tooling), and confirm from a
@@ -132,7 +132,7 @@ cannot repair — the llm-orc serve isn't one of `doctor.sh`'s checks, so
 nothing brings it back until you do:
 
 ```bash
-ssh ng-mini 'launchctl bootout gui/$(id -u)/com.llm-orc.serve'
+ssh <host> 'launchctl bootout gui/$(id -u)/com.llm-orc.serve'
 ```
 
 Within about 10 minutes (one reconciler run writes `"serve": false`, then
@@ -140,7 +140,7 @@ one Worker tick reads it) a "homelab DOWN: red: serve" push should arrive.
 Then:
 
 ```bash
-ssh ng-mini 'launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.llm-orc.serve.plist'
+ssh <host> 'launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.llm-orc.serve.plist'
 ```
 
 A "homelab recovered" push should follow on the next tick. Record both
@@ -154,10 +154,10 @@ before any Worker tick ever observes it down.
 
 ntfy runs as the Dokku app `ntfy` (image `binwiederhier/ntfy`, start
 command `serve`, data in `/var/lib/dokku/data/storage/ntfy`), tailnet
-`https://ntfy.homelab.nate.green`, public `https://ntfy.nate.green`
+`https://ntfy.homelab.example.com`, public `https://ntfy.example.com`
 through the tunnel. Auth is `deny-all` by default: user `homelab-monitor`
 has write-only access to topic `homelab` (the Worker holds one of its
-tokens as the secret `NTFY_TOKEN`); user `nathan` has read-only access
+tokens as the secret `NTFY_TOKEN`); user `reader` has read-only access
 (the phone subscribes as that user). Anonymous can neither read nor
 publish. Manage with `docker exec ntfy.web.1 ntfy user|access|token ...`.
 

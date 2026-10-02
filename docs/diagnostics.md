@@ -10,7 +10,7 @@ Troubleshooting reference for the homelab stack: Colima VM, Pi-hole, Dokku, soca
 Client device
   │
   ▼
-Tailscale Split DNS (homelab.nate.green → server Tailscale IP)
+Tailscale Split DNS (homelab.example.com → server Tailscale IP)
   │
   ▼
 socat on Mac (UDP :53 on Tailscale IP → Colima VM IP :53)
@@ -27,7 +27,7 @@ Pi-hole (docker, --network=host)
 Upstream DNS (1.1.1.1, 8.8.8.8)
 ```
 
-Key detail: socat binds to the **Tailscale IP** on the Mac and forwards UDP to the **Colima VM IP**. If either IP changes (Colima restart, VM crash), the chain breaks and all Tailscale clients lose DNS for `*.homelab.nate.green`.
+Key detail: socat binds to the **Tailscale IP** on the Mac and forwards UDP to the **Colima VM IP**. If either IP changes (Colima restart, VM crash), the chain breaks and all Tailscale clients lose DNS for `*.homelab.example.com`.
 
 ### HTTP Chain
 
@@ -138,7 +138,7 @@ docker ps --filter name=dokku --format '{{.Names}} {{.Status}}'
 curl -sI http://$TAILSCALE_IP
 
 # Check a specific app
-curl -sI -H "Host: myapp.homelab.nate.green" http://$TAILSCALE_IP
+curl -sI -H "Host: myapp.homelab.example.com" http://$TAILSCALE_IP
 ```
 
 ### 6. Cloudflare Tunnel (public apps)
@@ -283,14 +283,14 @@ against each other and against a stale Lima disk lock after the
    containers.
 3. Probes what's true right now and writes the result to
    `status/html/status.json`, served at
-   `https://status.homelab.nate.green/status.json`, whether or not
+   `https://status.homelab.example.com/status.json`, whether or not
    everything passed:
 
    | Key | What it measures |
    |-----|-------------------|
    | `colima` | `colima status` succeeds |
    | `doctor` | `doctor.sh --fix` exited 0 (all checks pass, or every failure self-healed) |
-   | `dns` | `dig @100.92.166.102 pi.hole` returns an IP, through the socat forwarder |
+   | `dns` | `dig @<tailscale-ip> pi.hole` returns an IP, through the socat forwarder |
    | `pihole_healthy` | the `pihole` container's Docker health status is `healthy` |
    | `apps` | the `dokku` and `pihole` containers are both `Running` |
    | `serve` | `curl 127.0.0.1:8765/api/models` returns JSON |
@@ -367,5 +367,5 @@ sudo launchctl list | grep com.homelab
 docker exec pihole pihole-FTL --config dns.listeningMode
 
 # Test DNS resolution end-to-end
-dig @$(tailscale ip -4) myapp.homelab.nate.green +short
+dig @$(tailscale ip -4) myapp.homelab.example.com +short
 ```

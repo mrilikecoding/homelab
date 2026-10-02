@@ -21,7 +21,7 @@ bodies). Same volume arrangement as ntfy, so it survives `dokku` rebuilds
 and Colima restarts. If it is ever lost, clients re-publish their peer lists
 at their next change.
 
-Tailnet only, at `https://remote-pi-relay.homelab.nate.green`. Give the
+Tailnet only, at `https://remote-pi-relay.homelab.example.com`. Give the
 extension and the phone app that `https://` form; both reject `wss://` and
 upgrade to WebSocket themselves. Not on the Cloudflare tunnel; the phone
 needs Tailscale up, which it already does for ntfy. Add
@@ -61,7 +61,7 @@ after an `nvm install` to a newer Node: `npm i -g remote-pi`,
 `pi install <new path>`, `remote-pi install`, re-add the plist keys.
 
 Pairing the mini is interactive, and the order matters:
-`remote-pi daemon stop` FIRST, then `ssh -t ng-mini`, `cd ~/agents/mini`,
+`remote-pi daemon stop` FIRST, then `ssh -t <host>`, `cd ~/agents/mini`,
 `pi`, `/remote-pi`, `/remote-pi pair`, scan, quit `pi`, then
 `remote-pi daemon start`. A daemon left running during pairing polls the
 phone's member list every 60 s and, if its own key is not in it (it was on
@@ -88,10 +88,10 @@ restart after the file is minted. Back that file up with the rest of
 ## Checking it
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' https://remote-pi-relay.homelab.nate.green/health   # 200
+curl -s -o /dev/null -w '%{http_code}\n' https://remote-pi-relay.homelab.example.com/health   # 200
 curl -s -i --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
   -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
-  https://remote-pi-relay.homelab.nate.green/ | head -1                                       # HTTP/1.1 101
+  https://remote-pi-relay.homelab.example.com/ | head -1                                       # HTTP/1.1 101
 ```
 
 `--http1.1` matters: curl defaults to HTTP/2 against nginx, and HTTP/2 has
