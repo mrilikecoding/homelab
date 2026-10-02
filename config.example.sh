@@ -19,7 +19,7 @@ COLIMA_MEMORY=4
 # Dokku settings
 # =============================================================================
 # The hostname Dokku will use (your Tailscale MagicDNS name)
-DOKKU_HOSTNAME="ng-mini.corgi-woodpecker.ts.net"
+DOKKU_HOSTNAME="my-mac.example.ts.net"
 
 # SSH port for git push (3022 avoids conflict with macOS SSH on 22)
 DOKKU_SSH_PORT=3022
@@ -28,8 +28,8 @@ DOKKU_SSH_PORT=3022
 # Domain settings
 # =============================================================================
 # Base domain for your apps (Pi-hole will resolve these via local DNS)
-# Examples: "nate.green", "home.lan", "apps.local"
-APP_DOMAIN="nate.green"
+# Examples: "example.com", "home.lan", "apps.local"
+APP_DOMAIN="example.com"
 
 # Your server's Tailscale IP (found via: tailscale ip -4)
 TAILSCALE_IP=""  # Will be auto-detected if left empty

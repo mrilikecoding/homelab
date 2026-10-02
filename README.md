@@ -71,7 +71,7 @@ After installation, configure Tailscale DNS:
 2. Add **Split DNS**: `homelab.YOURDOMAIN` → `YOUR_TAILSCALE_IP`
 3. (Optional) Add your Tailscale IP as a **Global Nameserver** for network-wide ad blocking
 
-Your apps will be available at `*.homelab.YOURDOMAIN` (e.g., `myapp.homelab.nate.green`).
+Your apps will be available at `*.homelab.YOURDOMAIN` (e.g., `myapp.homelab.example.com`).
 
 ## Remote Machine Setup
 
@@ -480,7 +480,7 @@ APP_DOMAIN="yourdomain.com"
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `DOKKU_DOMAIN` | Your app domain (required) | `nate.green` |
+| `DOKKU_DOMAIN` | Your app domain (required) | `example.com` |
 | `DOKKU_HOST` | SSH host alias (optional) | `dokku` |
 
 ---

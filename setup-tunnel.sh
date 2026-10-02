@@ -151,7 +151,7 @@ HOSTNAME="${2:-$APP.$APP_DOMAIN}"
 
 if [[ -z "$APP" ]]; then
     echo "Usage: $0 <app-name> [public-hostname]"
-    echo "Example: $0 myapp myapp.nate.green"
+    echo "Example: $0 myapp myapp.example.com"
     exit 1
 fi
 
