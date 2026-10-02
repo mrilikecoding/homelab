@@ -1,7 +1,8 @@
 #!/bin/bash
 # Generates status.html from Dokku app status
 
-OUTPUT_DIR="${1:-/Users/nathanielgreen/homelab/status/html}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OUTPUT_DIR="${1:-$SCRIPT_DIR/html}"
 mkdir -p "$OUTPUT_DIR"
 
 # Use full path to docker for launchd compatibility
