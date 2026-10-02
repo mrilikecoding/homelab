@@ -12,3 +12,4 @@ status/html/
 
 monitoring/worker/node_modules/
 monitoring/worker/.wrangler/
+.public-apps

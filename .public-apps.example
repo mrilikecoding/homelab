@@ -1,0 +1,4 @@
+# One line per public app: <dokku-app>:<public-hostname>
+# Copy to .public-apps (untracked) or let tunnel-add-app.sh create it.
+myapp:myapp.example.com
+status:status.example.com
