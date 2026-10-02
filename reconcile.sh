@@ -7,6 +7,24 @@ export LIMA_HOME="$HOME/.colima/_lima"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 log() { echo "$(date '+%F %T') $*"; }
 
+# This machine's values (TAILSCALE_IP may be empty: detected below).
+if [[ -f "$SCRIPT_DIR/config.sh" ]]; then set +u; source "$SCRIPT_DIR/config.sh"; set -u; fi
+
+# The Tailscale IPv4: config.sh's TAILSCALE_IP, else ask the tailscale CLI. The
+# restricted PATH may not hold it, so try the Homebrew and app-bundle copies
+# too. Bounded to 5s per attempt; prints nothing when it cannot be found.
+detect_tailscale_ip() {
+  if [[ -n "${TAILSCALE_IP:-}" ]]; then echo "$TAILSCALE_IP"; return 0; fi
+  local ts out
+  for ts in tailscale /usr/local/bin/tailscale /opt/homebrew/bin/tailscale \
+            /Applications/Tailscale.app/Contents/MacOS/Tailscale; do
+    command -v "$ts" >/dev/null 2>&1 || continue
+    out=$(perl -e 'alarm 5; exec @ARGV' "$ts" ip -4 2>/dev/null | head -1)
+    if [[ "$out" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then echo "$out"; return 0; fi
+  done
+  return 1
+}
+
 # 1. Colima. A stale disk lock survives an unclean shutdown and blocks boot.
 colima_start_ok=true
 if ! colima status >/dev/null 2>&1; then
@@ -32,7 +50,8 @@ doctor_ok=false
 # 3. Publish what is true right now, after repairs. WP4's Worker reads this
 #    through the tunnel. Every run reaches this block.
 colima_ok=false; colima status >/dev/null 2>&1 && colima_ok=true
-dns_ok=false;    dig +time=2 +tries=1 @100.92.166.102 pi.hole +short 2>/dev/null | grep -qE '^[0-9]+\.[0-9]+\.' && dns_ok=true   # dig prints its timeout banner to stdout; require an IP
+ts_ip=$(detect_tailscale_ip || true)
+dns_ok=false;    [[ -n "$ts_ip" ]] && dig +time=2 +tries=1 @"$ts_ip" pi.hole +short 2>/dev/null | grep -qE '^[0-9]+\.[0-9]+\.' && dns_ok=true   # dig prints its timeout banner to stdout; require an IP
 serve_ok=false;  curl -fsS -m 5 http://127.0.0.1:8765/api/models 2>/dev/null | grep -q '"models"' && serve_ok=true
 apps_ok=false;   [[ "$(docker inspect --format '{{.State.Running}}' dokku pihole 2>/dev/null | grep -c '^true$')" == "2" ]] && apps_ok=true
 ph=$(docker inspect --format '{{.State.Health.Status}}' pihole 2>/dev/null); pihole_ok=false; [[ "$ph" == "healthy" ]] && pihole_ok=true
