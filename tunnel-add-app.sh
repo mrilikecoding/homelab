@@ -63,11 +63,11 @@ else
     echo "  Zone: $HOSTNAME"
     echo "  Type: CNAME"
     if [[ "$HOSTNAME" == *.* && "$(echo "$HOSTNAME" | tr '.' '\n' | wc -l)" -gt 2 ]]; then
-        # Subdomain (e.g., trellis.nrgforge.com) — name is the subdomain part
+        # Subdomain (e.g., myapp.example.org) — name is the subdomain part
         ZONE="${HOSTNAME#*.}"
         echo "  Name: ${HOSTNAME%%.$ZONE}"
     else
-        # Apex domain (e.g., nrgforge.com) — name is @
+        # Apex domain (e.g., example.org) — name is @
         echo "  Name: @ (root)"
     fi
     echo "  Target: ${TUNNEL_ID}.cfargotunnel.com"

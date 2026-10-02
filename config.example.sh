@@ -39,7 +39,7 @@ TAILSCALE_IP=""  # Will be auto-detected if left empty
 # =============================================================================
 # Username for SSH access to this homelab server (for remote machine setup)
 # This enables fully automated setup - agents won't need to ask for the username
-HOMELAB_USER=""  # e.g., "nate" - leave empty to require manual entry
+HOMELAB_USER=""  # e.g., "youruser" - leave empty to require manual entry
 
 # =============================================================================
 # HTTPS / Let's Encrypt settings
