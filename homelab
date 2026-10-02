@@ -5,7 +5,6 @@ set -e
 # Usage: homelab <command> [args]
 
 DOKKU_HOST="dokku"  # SSH config alias
-DOKKU_DOMAIN="${DOKKU_DOMAIN:-nate.green}"
 
 # Resolve symlinks to find the actual script location
 SOURCE="${BASH_SOURCE[0]}"
@@ -67,7 +66,25 @@ app_url() {
     fi
 }
 
+# The app domain: DOKKU_DOMAIN from the environment (client machines), else
+# APP_DOMAIN from config.sh (the server). There is no default.
+require_domain() {
+    if [[ -z "${DOKKU_DOMAIN:-}" && -f "$SCRIPT_DIR/config.sh" ]]; then
+        DOKKU_DOMAIN="$( (source "$SCRIPT_DIR/config.sh" >/dev/null 2>&1; echo "${APP_DOMAIN:-}") )"
+    fi
+    if [[ -z "${DOKKU_DOMAIN:-}" ]]; then
+        echo -e "${RED}Error: app domain not set${NC}" >&2
+        echo "Set DOKKU_DOMAIN in your environment (e.g. export DOKKU_DOMAIN=example.com)" >&2
+        echo "or APP_DOMAIN in $SCRIPT_DIR/config.sh" >&2
+        exit 1
+    fi
+}
+
 COMMAND="${1:-help}"
+
+case "$COMMAND" in
+    create|deploy|push|url|open|public) require_domain ;;
+esac
 
 case "$COMMAND" in
     apps|list)
