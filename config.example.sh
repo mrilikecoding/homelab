@@ -74,3 +74,14 @@ R2_ACCESS_KEY_ID=""
 R2_SECRET_ACCESS_KEY=""
 R2_BACKUP_BUCKET="nextcloud-backup"
 R2_REGION="auto"
+
+# =============================================================================
+# llm-orc serve (llm-orc-deploy.sh renders the launchd unit from these)
+# =============================================================================
+# Every value has a default; uncomment to change it.
+# LLM_ORC_SERVE_DIR="$HOME/llm-orc-serve"   # plain directory, no .llm-orc above it
+# LLM_ORC_PORT=8765
+# LLM_ORC_BACKEND_PORT=8080
+# LLM_ORC_MODELS_MAX=2                      # models the router keeps resident
+# LLM_ORC_LIBRARY_PATH=""                   # an llm-orchestra-library checkout, to list its ensembles
+# LLAMA_CACHE="$HOME/Library/Caches/llama.cpp"
