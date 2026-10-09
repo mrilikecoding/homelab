@@ -85,3 +85,12 @@ R2_REGION="auto"
 # LLM_ORC_MODELS_MAX=2                      # models the router keeps resident
 # LLM_ORC_LIBRARY_PATH=""                   # an llm-orchestra-library checkout, to list its ensembles
 # LLAMA_CACHE="$HOME/Library/Caches/llama.cpp"
+
+# =============================================================================
+# Vault inbox peer (vault-peer-deploy.sh renders the launchd unit from these)
+# =============================================================================
+# Every value has a default; uncomment to change it. The peer's settings
+# (host, vault id, token) live in $VAULT_PEER_DIR/.env, not here.
+# VAULT_PEER_DIR="$HOME/og-cloud-headless"  # code and .env; holds node_modules after npm install
+# VAULT_PEER_LABEL="com.vault-peer.inbox"   # launchd label
+# VAULT_PEER_NODE=""                        # absolute node path; empty = nvm v22 at start, else PATH
