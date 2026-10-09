@@ -83,7 +83,7 @@ try_fix() {
 # Server-side checks
 # =============================================================================
 run_server_checks() {
-    TOTAL=11
+    TOTAL=12
     local PIHOLE_RESTARTED=false
 
     # --- Check 1: Colima VM has routable IP ---
@@ -389,6 +389,44 @@ PLIST"; then
                     check_fixed
                 else
                     check_fail "still running ${running:-nothing} after kickstart"
+                fi
+            fi
+        fi
+    else
+        check_pass "not configured (skipped)"
+    fi
+
+    # --- Check 12: vault inbox peer is running ---
+    # Only for machines that carry the peer's settings file. Running means
+    # the launchd agent has a live process and either its log was written
+    # in the last 15 minutes or the process exists (a quiet peer logs little).
+    echo -n "[12/${TOTAL}] vault inbox peer is running ..."
+    local peer_dir="${VAULT_PEER_DIR:-$HOME/og-cloud-headless}"
+    local peer_label="${VAULT_PEER_LABEL:-com.vault-peer.inbox}"
+    local peer_log="$HOME/Library/Logs/vault-peer.log"
+    if [[ -f "$peer_dir/.env" ]]; then
+        local peer_state peer_ok=false
+        peer_state=$(launchctl print "gui/$(id -u)/${peer_label}" 2>/dev/null)
+        if echo "$peer_state" | grep -q 'state = running'; then
+            local peer_pid log_age=999999
+            peer_pid=$(echo "$peer_state" | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -1)
+            [[ -f "$peer_log" ]] && log_age=$(( $(date +%s) - $(stat -f %m "$peer_log" 2>/dev/null || echo 0) ))
+            if [[ "$log_age" -lt 900 || -n "$peer_pid" ]]; then
+                peer_ok=true
+            fi
+        fi
+        if [[ "$peer_ok" == "true" ]]; then
+            check_pass "$peer_label"
+        else
+            check_fail "$peer_label not running"
+            if try_fix "kickstarting ${peer_label}" \
+                launchctl kickstart -k "gui/$(id -u)/${peer_label}"; then
+                sleep 5
+                echo -n "      → Re-checking ..."
+                if launchctl print "gui/$(id -u)/${peer_label}" 2>/dev/null | grep -q 'state = running'; then
+                    check_fixed
+                else
+                    check_fail "still not running (see $peer_log)"
                 fi
             fi
         fi
