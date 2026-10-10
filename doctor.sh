@@ -3,6 +3,9 @@
 # Usage: homelab doctor [--fix]
 
 set -uo pipefail
+# A non-interactive ssh session does not carry the brew prefixes; without
+# them the colima and docker checks report outages that are not there.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
